@@ -6,6 +6,7 @@ import json
 import h5py
 import numpy as np
 import pandas as pd
+import random
 import pickle
 # from multiprocessing.connection import Client
 from obspy.clients.fdsn import Client
@@ -13,8 +14,10 @@ from obspy.core import UTCDateTime
 from obspy import read
 from obspy.geodetics.base import gps2dist_azimuth
 
-fn_starttime = lambda srctime: srctime - 0.5 * 60 * 60
-fn_endtime = lambda srctime: srctime + 2 * 60 * 60
+# fn_starttime = lambda srctime: srctime - 0.5 * 60 * 60
+# fn_endtime = lambda srctime: srctime + 2 * 60 * 60
+fn_starttime = lambda srctime: srctime - 100
+fn_endtime = lambda srctime: srctime + 1400
 
 with open('sta2net.json') as sta2net_json:
     sta2net = json.load(sta2net_json)
@@ -153,8 +156,108 @@ class SeismicData():
                             #     .attach_response(inv)
         print(f"{numdownloaded} seismograms are downloaded.")
                 
+    def get_datalist(self, resample = 0):
+        with h5py.File('./test.hdf5','w') as f:
+            datalist = []
+            f.create_group("data")
+            for event in data.events:
+                for trace in event.stations:
+                    # p info
+                    p_arrival_sample = None
+                    p_status = None
+                    p_weight = None
+                    p_travel_sec = None
 
-    def __init__(self, client: Client, tables: list, autofetch: False):
+                    for record in trace.records:
+                        if record.phase == 'P':
+                            p_status = 'manual'
+                            p_weight = 1/record.error
+                            # p_travel_sec = event.srctime + record.obstim - fn_starttime(event.srctime)
+                            p_calctim = event.srctime + record.calctim
+                            p_travel_sec = event.srctime + record.obstim - fn_starttime(p_calctim)
+                            p_arrival_sample = int(p_travel_sec)
+                            # p_arrival_sample = int(p_travel_sec - p_calctim)
+
+                    # s info
+                    s_arrival_sample = None
+                    s_status = None
+                    s_weight = None
+                    s_travel_sec = None
+
+                    for record in trace.records:
+                        if record.phase == 'S':
+                            s_status = 'manual'
+                            s_weight = 1/record.error
+                            # s_travel_sec = event.srctime + record.obstim - fn_starttime(event.srctime)
+                            # s_arrival_sample = int(s_travel_sec)
+                            s_obstim0 = event.srctime + record.obstim
+
+                    obsfilenames = glob.glob(f"./training/{event.srctime}/*{trace.labelsta['name']}.LH.obspy")
+                    if len(obsfilenames) > 0:
+                        # network_code = None if (not trace.isdataexist) else sta2net[trace.labelsta['name']]['network']
+                        # trace_name = None if (not trace.isdataexist) else f"{sta2net[trace.labelsta['name']]['network']}.{trace.labelsta['name']}.LH.obspy"
+                        # network_code = sta2net[trace.labelsta['name']]['network']
+                        # obsfile_name = f"{sta2net[trace.labelsta['name']]['network']}.{trace.labelsta['name']}.LH.obspy"
+                        obsfile_name = obsfilenames[0]
+                        network_code = obsfile_name.split('/')[-1].split('.')[0]
+                        event_name = f"{trace.labelsta['name']}.network_code_{event.srctime.year:4d}{event.srctime.month:02d}{event.srctime.day:02d}{event.srctime.hour:02d}{event.srctime.minute:02d}{event.srctime.second:02d}_EV"
+
+                        event_obspy = read(obsfile_name)
+                        # if len(event_obspy) == 3 and len(event_obspy[0])*len(event_obspy[1])*len(event_obspy[2])>0 and all([np.isscalar(i) for i in event_obspy[0].data]) and all([np.isscalar(i) for i in event_obspy[1].data]) and all([np.isscalar(i) for i in event_obspy[2].data]):
+                        if len(event_obspy) == 3 and len(event_obspy[0])*len(event_obspy[1])*len(event_obspy[2])>0 and np.isscalar(event_obspy[0].data[0]):
+                            if resample != 0:
+                                delta = 1/resample
+                                event_obspy.trim(starttime=p_calctim-100, endtime=p_calctim+1400)
+                                event_obspy.interpolate(sampling_rate=resample, method='lanczos', a=20)
+                                if len(event_obspy) == 3:
+                                    stdshape = (int(1500*resample), 3)
+                                    event_data = np.transpose([np.array(event_obspy[0].data, dtype=np.float32), np.array(event_obspy[1].data, dtype=np.float32), np.array(event_obspy[2].data, dtype=np.float32)]) 
+                                    if event_data.shape[0] <= int(1520*resample) and event_data.shape[0] > int(1500*resample): event_data = event_data[:int(1500*resample),0:3]
+                            else:
+                                delta = 1
+                                # stdshape = (9000, 3)
+                                # event_data = np.transpose([np.array(event_obspy[0].data, dtype=np.float64), np.array(event_obspy[1].data, dtype=np.float64), np.array(event_obspy[2].data, dtype=np.float64)]) 
+                                # if event_data.shape[0] <= 9020 and event_data.shape[0] > 9000: event_data = event_data[:9000,0:3]
+                                event_obspy.trim(starttime=p_calctim-100, endtime=p_calctim+1400)
+                                stdshape = (1500, 3)
+                                if len(event_obspy) == 3:
+                                    event_data = np.transpose([np.array(event_obspy[0].data, dtype=np.float64), np.array(event_obspy[1].data, dtype=np.float64), np.array(event_obspy[2].data, dtype=np.float64)]) 
+                                    if event_data.shape[0] <= 1520 and event_data.shape[0] > 1500: event_data = event_data[:1500,0:3]
+                            # print(event_data.shape)
+
+                            try:
+                                event_data = event_data.astype(np.float32)
+                                anynan = np.isnan(event_data).any()
+                                conditions = (p_status and s_status and event_data.shape==stdshape and not anynan)
+
+                                if conditions:
+                                    s_arrival_sample = int(s_obstim0-fn_starttime(p_calctim))
+                                    snr = np.sum(abs(event_data[s_arrival_sample-int(10/delta):s_arrival_sample+int(50/delta),:]), axis=0) / np.sum(abs(event_data[0:int(40/delta),:]), axis=0)
+                                    dataset = f.create_dataset(f"data/{event_name}",data=event_data)
+                                    dataset.attrs['p_arrival_sample'] = p_arrival_sample
+                                    dataset.attrs['p_status'] = p_status
+                                    dataset.attrs['p_weight'] = p_weight
+                                    dataset.attrs['s_arrival_sample'] = s_arrival_sample
+                                    dataset.attrs['s_status'] = s_status
+                                    dataset.attrs['s_weight'] = s_weight
+                                    dataset.attrs['coda_end_sample'] = s_arrival_sample-int(60/delta)
+                                    dataset.attrs['snr_db'] = snr
+                                    dataset.attrs['trace_category'] = 'earthquake_local'
+                                    dataset.attrs['network_code'] = network_code
+                                    dataset.attrs['source_id'] = 'None'
+                                    dataset.attrs['source_distance_km'] = trace.labelsta['dist'] * 111.1
+                                    dataset.attrs['trace_name'] = event_name      
+                                    dataset.attrs['trace_start_time'] = str(event.srctime)
+                                    dataset.attrs['source_magnitude'] = 0
+                                    dataset.attrs['receiver_type'] = 'LH'
+                                    datalist.append({'network_code': network_code, 'receiver_code': trace.labelsta['name'], 'receiver_type': 'LH', 'receiver_latitude': trace.labelsta['lat'], 'receiver_longitude': trace.labelsta['lon'], 'receiver_elevation_m': None, 'p_arrival_sample': p_arrival_sample, 'p_status': p_status, 'p_weight': p_weight, 'p_travel_sec': p_travel_sec, 's_arrival_sample': s_arrival_sample, 's_status': s_status, 's_weight': s_weight, 'source_id': None, 'source_origin_time': event.srctime, 'source_origin_uncertainty_sec': None, 'source_latitude':event.srcloc[0], 'source_longitude': event.srcloc[1], 'source_error_sec': None, 'source_gap_deg': None, 'source_horizontal_uncertainty_km': None, 'source_depth_km': event.srcloc[2], 'source_depth_uncertainty_km': None, 'source_magnitude': None, 'source_magnitude_type': None, 'source_magnitude_author': None, 'source_mechanism_strike_dip_rake': None, 'source_distance_deg': trace.labelsta['dist'], 'source_distance_km': trace.labelsta['dist'] * 111.1, 'back_azimuth_deg': trace.labelsta['azi'], 'snr_db': snr, 'coda_end_sample': [[s_arrival_sample-int(60/delta)]], 'trace_start_time': event.srctime, 'trace_category': 'earthquake_local', 'trace_name': event_name})
+                            except:
+                                print(f"Value error: {obsfile_name}")
+
+        return datalist
+
+
+    def __init__(self, client: Client, tables: list, autofetch=False):
         self.client = client
         self.refinv = self._getRefResponse()
 
@@ -183,93 +286,33 @@ if __name__ == '__main__':
     # with open('data.pkl', 'wb') as outp:
     #     pickle.dump(data, outp, pickle.HIGHEST_PROTOCOL)
 
-    # open existing dataset and fetch
+    # open existing dataset
     # with open('data.pkl', 'rb') as inp:
     #     loaddata = pickle.load(inp)
     # data = SeismicData(client, [])
     # data.events = loaddata.events
+
+    # fetch
     # data.fetch(skip_existing_events=False)
     # with open('data_fetched.pkl', 'wb') as outp:
     #     pickle.dump(data, outp, pickle.HIGHEST_PROTOCOL)
 
     # just open existing fetched dataset
     with open('data_fetched.pkl', 'rb') as inp:
-        data = pickle.load(inp)
+        loaddata = pickle.load(inp)
+    data = SeismicData(client, [])
+    data.events = loaddata.events
     
     # testing output
     printphase = [record.phase for record in data.events[0].stations[3].records]
     print(f"#1 event has {len(data.events[0])} stations, records of #4 event: {', '.join(printphase)}")
 
     # create dataframe
-    with h5py.File('./test.hdf5','w') as f:
-        datalist = []
-        f.create_group("data")
-        for event in data.events:
-            for trace in event.stations:
-                # p info
-                p_arrival_sample = None
-                p_status = None
-                p_weight = None
-                p_travel_sec = None
-
-                for record in trace.records:
-                    if record.phase == 'P':
-                        p_status = 'manual'
-                        p_weight = 1/record.error
-                        p_travel_sec = event.srctime + record.obstim - fn_starttime(event.srctime)
-                        p_arrival_sample = int(p_travel_sec)
-
-                # s info
-                s_arrival_sample = None
-                s_status = None
-                s_weight = None
-                s_travel_sec = None
-
-                for record in trace.records:
-                    if record.phase == 'S':
-                        s_status = 'manual'
-                        s_weight = 1/record.error
-                        s_travel_sec = event.srctime + record.obstim - fn_starttime(event.srctime)
-                        s_arrival_sample = int(s_travel_sec)
-
-                obsfilenames = glob.glob(f"./training/{event.srctime}/*{trace.labelsta['name']}.LH.obspy")
-                if len(obsfilenames) > 0:
-                    # network_code = None if (not trace.isdataexist) else sta2net[trace.labelsta['name']]['network']
-                    # trace_name = None if (not trace.isdataexist) else f"{sta2net[trace.labelsta['name']]['network']}.{trace.labelsta['name']}.LH.obspy"
-                    # network_code = sta2net[trace.labelsta['name']]['network']
-                    # obsfile_name = f"{sta2net[trace.labelsta['name']]['network']}.{trace.labelsta['name']}.LH.obspy"
-                    obsfile_name = obsfilenames[0]
-                    network_code = obsfile_name.split('/')[-1].split('.')[0]
-                    event_name = f"{trace.labelsta['name']}.network_code_{event.srctime.year:4d}{event.srctime.month:02d}{event.srctime.day:02d}{event.srctime.hour:02d}{event.srctime.minute:02d}{event.srctime.second:02d}_EV"
-
-                    event_obspy = read(obsfile_name)
-                    if len(event_obspy) == 3:
-                        event_data = np.transpose([np.array(event_obspy[0].data, dtype=np.float64), np.array(event_obspy[1].data, dtype=np.float64), np.array(event_obspy[2].data, dtype=np.float64)]) 
-                        if event_data.shape[0] <= 9020 and event_data.shape[0] > 9000: event_data = event_data[:9000,0:3]
-                        # print(event_data.shape)
-
-                        conditions = (p_status and s_status and event_data.shape==(9000,3))
-
-                        if conditions:
-                            snr = np.sum(abs(event_data[s_arrival_sample-20:s_arrival_sample+20,:]), axis=0) / np.sum(abs(event_data[0:40,:]), axis=0)
-                            dataset = f.create_dataset(f"data/{event_name}",data=event_data)
-                            dataset.attrs['p_arrival_sample'] = p_arrival_sample
-                            dataset.attrs['p_status'] = p_status
-                            dataset.attrs['p_weight'] = p_weight
-                            dataset.attrs['s_arrival_sample'] = s_arrival_sample
-                            dataset.attrs['s_status'] = s_status
-                            dataset.attrs['s_weight'] = s_weight
-                            dataset.attrs['coda_end_sample'] = s_arrival_sample+1000
-                            dataset.attrs['snr_db'] = snr
-                            dataset.attrs['trace_category'] = 'earthquake_local'
-                            dataset.attrs['network_code'] = network_code
-                            dataset.attrs['source_id'] = 'None'
-                            dataset.attrs['source_distance_km'] = trace.labelsta['dist'] * 111.1
-                            dataset.attrs['trace_name'] = event_name      
-                            dataset.attrs['trace_start_time'] = str(event.srctime)
-                            dataset.attrs['source_magnitude'] = 0
-                            dataset.attrs['receiver_type'] = 'LH'
-                            datalist.append({'network_code': network_code, 'receiver_code': trace.labelsta['name'], 'receiver_type': 'LH', 'receiver_latitude': trace.labelsta['lat'], 'receiver_longitude': trace.labelsta['lon'], 'receiver_elevation_m': None, 'p_arrival_sample': p_arrival_sample, 'p_status': p_status, 'p_weight': p_weight, 'p_travel_sec': p_travel_sec, 's_arrival_sample': s_arrival_sample, 's_status': s_status, 's_weight': s_weight, 'source_id': None, 'source_origin_time': event.srctime, 'source_origin_uncertainty_sec': None, 'source_latitude':event.srcloc[0], 'source_longitude': event.srcloc[1], 'source_error_sec': None, 'source_gap_deg': None, 'source_horizontal_uncertainty_km': None, 'source_depth_km': event.srcloc[2], 'source_depth_uncertainty_km': None, 'source_magnitude': None, 'source_magnitude_type': None, 'source_magnitude_author': None, 'source_mechanism_strike_dip_rake': None, 'source_distance_deg': trace.labelsta['dist'], 'source_distance_km': trace.labelsta['dist'] * 111.1, 'back_azimuth_deg': trace.labelsta['azi'], 'snr_db': snr, 'coda_end_sample': [[s_arrival_sample+1000]], 'trace_start_time': event.srctime, 'trace_category': 'earthquake_local', 'trace_name': event_name})
+    # datalist = data.get_datalist(resample=8.0)
+    datalist = data.get_datalist(resample=0)
+    random.shuffle(datalist)
                 
-    df = pd.DataFrame(datalist)
-    df.to_csv('training_PandS.csv', index=False)
+    df = pd.DataFrame(datalist[:int(0.7*len(datalist))])
+    df.to_csv('training_PandS_up.csv', index=False)
+    df = pd.DataFrame(datalist[int(0.7*len(datalist)):])
+    df.to_csv('training_PandS_up_test.csv', index=False)
