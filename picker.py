@@ -156,7 +156,8 @@ class SeismicData():
                             #     .attach_response(inv)
         print(f"{numdownloaded} seismograms are downloaded.")
                 
-    def get_datalist(self, resample = 0):
+    def get_datalist(self, resample=0, rotate=True):
+        ref_response = self._getRefResponse()
         with h5py.File('./test.hdf5','w') as f:
             datalist = []
             f.create_group("data")
@@ -203,6 +204,12 @@ class SeismicData():
                         event_name = f"{trace.labelsta['name']}.network_code_{event.srctime.year:4d}{event.srctime.month:02d}{event.srctime.day:02d}{event.srctime.hour:02d}{event.srctime.minute:02d}{event.srctime.second:02d}_EV"
 
                         event_obspy = read(obsfile_name)
+                        # rotate to RTZ coordinate
+                        if rotate is True:
+                            baz = gps2dist_azimuth(lat1=event.srcloc[0], lon1=event.srcloc[1], lat2=trace.labelsta['lat'], lon2=trace.labelsta['lon'])
+                            event_obspy.rotate('NE->RT', back_azimuth=baz[2])
+
+                        # resample
                         # if len(event_obspy) == 3 and len(event_obspy[0])*len(event_obspy[1])*len(event_obspy[2])>0 and all([np.isscalar(i) for i in event_obspy[0].data]) and all([np.isscalar(i) for i in event_obspy[1].data]) and all([np.isscalar(i) for i in event_obspy[2].data]):
                         if len(event_obspy) == 3 and len(event_obspy[0])*len(event_obspy[1])*len(event_obspy[2])>0 and np.isscalar(event_obspy[0].data[0]):
                             if resample != 0:
@@ -232,15 +239,15 @@ class SeismicData():
 
                                 if conditions:
                                     s_arrival_sample = int(s_obstim0-fn_starttime(p_calctim))
-                                    snr = np.sum(abs(event_data[s_arrival_sample-int(10/delta):s_arrival_sample+int(50/delta),:]), axis=0) / np.sum(abs(event_data[0:int(40/delta),:]), axis=0)
+                                    snr = np.sum(abs(event_data[int((s_arrival_sample-10)/delta):int((s_arrival_sample+50)/delta),:]), axis=0) / np.sum(abs(event_data[0:int(40/delta),:]), axis=0)
                                     dataset = f.create_dataset(f"data/{event_name}",data=event_data)
-                                    dataset.attrs['p_arrival_sample'] = p_arrival_sample
+                                    dataset.attrs['p_arrival_sample'] = int(p_arrival_sample/delta)
                                     dataset.attrs['p_status'] = p_status
                                     dataset.attrs['p_weight'] = p_weight
-                                    dataset.attrs['s_arrival_sample'] = s_arrival_sample
+                                    dataset.attrs['s_arrival_sample'] = int(s_arrival_sample/delta)
                                     dataset.attrs['s_status'] = s_status
                                     dataset.attrs['s_weight'] = s_weight
-                                    dataset.attrs['coda_end_sample'] = s_arrival_sample-int(60/delta)
+                                    dataset.attrs['coda_end_sample'] = int((s_arrival_sample-60)/delta)
                                     dataset.attrs['snr_db'] = snr
                                     dataset.attrs['trace_category'] = 'earthquake_local'
                                     dataset.attrs['network_code'] = network_code
@@ -250,7 +257,7 @@ class SeismicData():
                                     dataset.attrs['trace_start_time'] = str(event.srctime)
                                     dataset.attrs['source_magnitude'] = 0
                                     dataset.attrs['receiver_type'] = 'LH'
-                                    datalist.append({'network_code': network_code, 'receiver_code': trace.labelsta['name'], 'receiver_type': 'LH', 'receiver_latitude': trace.labelsta['lat'], 'receiver_longitude': trace.labelsta['lon'], 'receiver_elevation_m': None, 'p_arrival_sample': p_arrival_sample, 'p_status': p_status, 'p_weight': p_weight, 'p_travel_sec': p_travel_sec, 's_arrival_sample': s_arrival_sample, 's_status': s_status, 's_weight': s_weight, 'source_id': None, 'source_origin_time': event.srctime, 'source_origin_uncertainty_sec': None, 'source_latitude':event.srcloc[0], 'source_longitude': event.srcloc[1], 'source_error_sec': None, 'source_gap_deg': None, 'source_horizontal_uncertainty_km': None, 'source_depth_km': event.srcloc[2], 'source_depth_uncertainty_km': None, 'source_magnitude': None, 'source_magnitude_type': None, 'source_magnitude_author': None, 'source_mechanism_strike_dip_rake': None, 'source_distance_deg': trace.labelsta['dist'], 'source_distance_km': trace.labelsta['dist'] * 111.1, 'back_azimuth_deg': trace.labelsta['azi'], 'snr_db': snr, 'coda_end_sample': [[s_arrival_sample-int(60/delta)]], 'trace_start_time': event.srctime, 'trace_category': 'earthquake_local', 'trace_name': event_name})
+                                    datalist.append({'network_code': network_code, 'receiver_code': trace.labelsta['name'], 'receiver_type': 'LH', 'receiver_latitude': trace.labelsta['lat'], 'receiver_longitude': trace.labelsta['lon'], 'receiver_elevation_m': None, 'p_arrival_sample': int(p_arrival_sample/delta), 'p_status': p_status, 'p_weight': p_weight, 'p_travel_sec': p_travel_sec, 's_arrival_sample': int(s_arrival_sample/delta), 's_status': s_status, 's_weight': s_weight, 'source_id': None, 'source_origin_time': event.srctime, 'source_origin_uncertainty_sec': None, 'source_latitude':event.srcloc[0], 'source_longitude': event.srcloc[1], 'source_error_sec': None, 'source_gap_deg': None, 'source_horizontal_uncertainty_km': None, 'source_depth_km': event.srcloc[2], 'source_depth_uncertainty_km': None, 'source_magnitude': None, 'source_magnitude_type': None, 'source_magnitude_author': None, 'source_mechanism_strike_dip_rake': None, 'source_distance_deg': trace.labelsta['dist'], 'source_distance_km': trace.labelsta['dist'] * 111.1, 'back_azimuth_deg': trace.labelsta['azi'], 'snr_db': snr, 'coda_end_sample': [[int((s_arrival_sample-60)/delta)]], 'trace_start_time': event.srctime, 'trace_category': 'earthquake_local', 'trace_name': event_name})
                             except:
                                 print(f"Value error: {obsfile_name}")
 
@@ -309,7 +316,7 @@ if __name__ == '__main__':
 
     # create dataframe
     # datalist = data.get_datalist(resample=8.0)
-    datalist = data.get_datalist(resample=0)
+    datalist = data.get_datalist(resample=4.0)
     random.shuffle(datalist)
                 
     df = pd.DataFrame(datalist[:int(0.7*len(datalist))])
