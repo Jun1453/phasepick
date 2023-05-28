@@ -204,10 +204,6 @@ class SeismicData():
                         event_name = f"{trace.labelsta['name']}.network_code_{event.srctime.year:4d}{event.srctime.month:02d}{event.srctime.day:02d}{event.srctime.hour:02d}{event.srctime.minute:02d}{event.srctime.second:02d}_EV"
 
                         event_obspy = read(obsfile_name)
-                        # rotate to RTZ coordinate
-                        if rotate is True:
-                            baz = gps2dist_azimuth(lat1=event.srcloc[0], lon1=event.srcloc[1], lat2=trace.labelsta['lat'], lon2=trace.labelsta['lon'])
-                            event_obspy.rotate('NE->RT', back_azimuth=baz[2])
 
                         # resample
                         # if len(event_obspy) == 3 and len(event_obspy[0])*len(event_obspy[1])*len(event_obspy[2])>0 and all([np.isscalar(i) for i in event_obspy[0].data]) and all([np.isscalar(i) for i in event_obspy[1].data]) and all([np.isscalar(i) for i in event_obspy[2].data]):
@@ -231,6 +227,14 @@ class SeismicData():
                                     event_data = np.transpose([np.array(event_obspy[0].data, dtype=np.float64), np.array(event_obspy[1].data, dtype=np.float64), np.array(event_obspy[2].data, dtype=np.float64)]) 
                                     if event_data.shape[0] <= 1520 and event_data.shape[0] > 1500: event_data = event_data[:1500,0:3]
                             # print(event_data.shape)
+
+                        # rotate to RTZ coordinate
+                        if rotate is True:
+                            try:
+                                baz = gps2dist_azimuth(lat1=event.srcloc[0], lon1=event.srcloc[1], lat2=trace.labelsta['lat'], lon2=trace.labelsta['lon'])
+                                event_obspy.rotate('NE->RT', back_azimuth=baz[2])
+                            except:
+                                print(f"Time span error: {obsfile_name}")
 
                             try:
                                 event_data = event_data.astype(np.float32)
