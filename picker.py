@@ -13,6 +13,7 @@ from obspy.clients.fdsn import Client
 from obspy.core import UTCDateTime
 from obspy import read
 from obspy.geodetics.base import gps2dist_azimuth
+from obspy.signal.invsim import simulate_seismometer
 
 # fn_starttime = lambda srctime: srctime - 0.5 * 60 * 60
 # fn_endtime = lambda srctime: srctime + 2 * 60 * 60
@@ -156,9 +157,9 @@ class SeismicData():
                             #     .attach_response(inv)
         print(f"{numdownloaded} seismograms are downloaded.")
                 
-    def get_datalist(self, resample=0, rotate=True):
+    def get_datalist(self, resample=0, rotate=True, filter=None, output='./test.hdf5'):
         ref_response = self._getRefResponse()
-        with h5py.File('./test.hdf5','w') as f:
+        with h5py.File(output,'w') as f:
             datalist = []
             f.create_group("data")
             for event in data.events:
@@ -228,15 +229,25 @@ class SeismicData():
                                     if event_data.shape[0] <= 1520 and event_data.shape[0] > 1500: event_data = event_data[:1500,0:3]
                             # print(event_data.shape)
 
-                        # rotate to RTZ coordinate
-                        if rotate is True:
                             try:
-                                baz = gps2dist_azimuth(lat1=event.srcloc[0], lon1=event.srcloc[1], lat2=trace.labelsta['lat'], lon2=trace.labelsta['lon'])
-                                event_obspy.rotate('NE->RT', back_azimuth=baz[2])
-                            except:
-                                print(f"Time span error: {obsfile_name}")
+                                # rotate to RTZ coordinate
+                                if rotate is True:
+                                    baz = gps2dist_azimuth(lat1=event.srcloc[0], lon1=event.srcloc[1], lat2=trace.labelsta['lat'], lon2=trace.labelsta['lon'])
+                                    event_obspy.rotate('NE->RT', back_azimuth=baz[2])
+                                # filter with bandpass
+                                if type(filter) is tuple:
+                                    event_obspy.filter('bandpass', freqmin=filter[0], freqmax=filter[1], corners=2, zerophase=True)
+                                # apply ANMO response
+                                elif type(filter) is str:
+                                    # event_obspy.remove_response(output="DISP", pre_filt=(0.005, 0.006, 30.0, 35.0)) \
+                                    event_obspy.attach_response(ref_response) # inst. response is not removed due to no available data in streams
+                                    # for i in range(3):
+                                    #     sts2 = {'gain': inv[0][0][i].response.get_paz().stage_gain,
+                                    #         'poles': inv[0][0][i].response.get_paz().poles,
+                                    #         'sensitivity': inv[0][0][i].response.instrument_sensitivity.value,
+                                    #         'zeros': inv[0][0][i].response.get_paz().zeros}
+                                    #     event_obspy[i].data = simulate_seismometer(event_obspy[i].data, samp_rate=event_obspy[0].stats.sampling_rate, paz_simulate=sts2)
 
-                            try:
                                 event_data = event_data.astype(np.float32)
                                 anynan = np.isnan(event_data).any()
                                 conditions = (p_status and s_status and event_data.shape==stdshape and not anynan)
@@ -320,10 +331,10 @@ if __name__ == '__main__':
 
     # create dataframe
     # datalist = data.get_datalist(resample=8.0)
-    datalist = data.get_datalist(resample=4.0)
+    datalist = data.get_datalist(resample=4.0, filter="ANMO", output='./upANMO.hdf5')
     random.shuffle(datalist)
                 
     df = pd.DataFrame(datalist[:int(0.7*len(datalist))])
-    df.to_csv('training_PandS_up.csv', index=False)
+    df.to_csv('training_PandS_upANMO.csv', index=False)
     df = pd.DataFrame(datalist[int(0.7*len(datalist)):])
-    df.to_csv('training_PandS_up_test.csv', index=False)
+    df.to_csv('training_PandS_upANMO_test.csv', index=False)
