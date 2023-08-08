@@ -11,6 +11,9 @@ venv-3.7
 downloads_*
 test_*
 training
+training_old
+rawdata
+resp.dir
 *.pkl
 *.h5
 *.hdf5
