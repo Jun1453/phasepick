@@ -21,8 +21,8 @@ from obspy.signal.invsim import simulate_seismometer
 
 fn_starttime_full = lambda srctime: srctime - 0.5 * 60 * 60
 fn_endtime_full = lambda srctime: srctime + 2 * 60 * 60
-fn_starttime_train = lambda srctime: srctime - 100
-fn_endtime_train = lambda srctime: srctime + 1400
+fn_starttime_train = lambda srctime: srctime - 250
+fn_endtime_train = lambda srctime: srctime + 1250
 
 with open('sta2net.json') as sta2net_json:
     sta2net = json.load(sta2net_json)
@@ -101,15 +101,6 @@ class InstrumentResponse():
             print('Response file not found:', filename)
 
 class SeismicData():
-    # def _getRefResponse(self):
-    #     # t0 = UTCDateTime(1989, 1, 1)
-    #     # return self.client.get_stations(network="SR", station="ANMO", channel="LH*", 
-    #     #                     level="response", 
-    #     #                     starttime=t0, endtime=t0+1)
-    #     t0 = UTCDateTime(1983, 1, 1)
-    #     return self.client.get_stations(network="SR", station="GRFO", channel="LH*", 
-    #                         level="response", 
-    #                         starttime=t0, endtime=t0+1)
     def _findevent(self, target):
         for event in self.events:
             if event == target: return event
@@ -148,19 +139,8 @@ class SeismicData():
         endtime = fn_endtime_full(srctime)
 
         savedir = f"./rawdata/{srctime}"
-        # print(savedir)
         
-        # if (not (os.path.exists(savedir) and skip_existing_events)) and srctime>UTCDateTime("2009-09-11T00:00:00Z"):
         if (not (os.path.exists(savedir) and skip_existing_events)):
-            # try:
-            #     cat = self.client.get_events(starttime=srctime-3, endtime=srctime+3, minmagnitude=5, catalog="ISC",
-            #         minlatitude=event.srcloc[0]-0.1, maxlatitude=event.srcloc[0]+0.1,
-            #         minlongitude=event.srcloc[1]-0.1, maxlongitude=event.srcloc[1]+0.1)
-            # except:
-            #     print(srctime, '... X, event not found')
-            #     # cat = self.client.get_events(starttime=srctime-3, endtime=srctime+3, minmagnitude=5, catalog="ISC")
-            #     # if not len(cat) == 1:
-            #     #     raise ValueError("None or more than 1 events found.")
 
             for station in event.stations:
                 ## revise the following line 
@@ -200,57 +180,6 @@ class SeismicData():
         self.numdownloaded = 0
         p = Pool(10) # set parallel fetch
         p.map(self._fetch_par, self.events)
-        # for event in self.events:
-        #     srctime = event.srctime
-        #     srctime.precision = 3
-        #     starttime = fn_starttime_full(srctime)
-        #     endtime = fn_endtime_full(srctime)
-
-        #     savedir = f"./rawdata/{srctime}"
-        #     print(savedir)
-            
-        #     # if (not (os.path.exists(savedir) and skip_existing_events)) and srctime>UTCDateTime("2009-09-11T00:00:00Z"):
-        #     if (not (os.path.exists(savedir) and skip_existing_events)):
-        #         # try:
-        #         #     cat = self.client.get_events(starttime=srctime-3, endtime=srctime+3, minmagnitude=5, catalog="ISC",
-        #         #         minlatitude=event.srcloc[0]-0.1, maxlatitude=event.srcloc[0]+0.1,
-        #         #         minlongitude=event.srcloc[1]-0.1, maxlongitude=event.srcloc[1]+0.1)
-        #         # except:
-        #         #     print(srctime, '... X, event not found')
-        #         #     # cat = self.client.get_events(starttime=srctime-3, endtime=srctime+3, minmagnitude=5, catalog="ISC")
-        #         #     # if not len(cat) == 1:
-        #         #     #     raise ValueError("None or more than 1 events found.")
-
-        #         for station in event.stations:
-        #             ## revise the following line 
-        #             if not (glob.glob(f"{savedir}/*.{station.labelsta['name']}.LH.obspy") and skip_existing_stations):
-        #                 try:
-        #                     inv = self.client.get_stations(station=f"{station.labelsta['name']}", starttime=starttime, endtime=endtime)
-
-        #                 except:
-        #                     try:
-        #                         inv = self.client.get_stations(starttime=starttime, endtime=endtime,
-        #                                 minlatitude=station.labelsta['lat']-0.02, maxlatitude=station.labelsta['lat']+0.02,
-        #                                 minlongitude=station.labelsta['lon']-0.02, maxlongitude=station.labelsta['lon']+0.02)
-        #                     except:
-        #                         print(srctime, station.labelsta['name'], '... X (station not exists)')
-        #                 # print(inv.networks[0].code)
-        #                 for network in inv.networks:
-        #                     if network.code == "SY":
-        #                         inv.networks.remove(network)
-                        
-        #                 if len(inv.networks) > 0 :
-        #                     try:
-        #                         if not os.path.exists(savedir): os.makedirs(savedir)
-        #                         st_raw = self.client.get_waveforms(inv.networks[0].code, inv.networks[0].stations[0].code, "*", "LH*", starttime, endtime, attach_response=True,
-        #                             filename=f"{savedir}/{inv.networks[0].code}.{inv.networks[0].stations[0].code}.LH.obspy")
-        #                         print(srctime, f"{station.labelsta['name']} ({inv.networks[0].code}-{inv.networks[0].stations[0].code})")
-        #                         station.labelnet['code'] = inv.networks[0].code
-        #                         station.isdataexist = True
-        #                         numdownloaded += 1
-        #                     except:
-        #                         print(srctime, f"{station.labelsta['name']} ({inv.networks[0].code}-{inv.networks[0].stations[0].code})", '... X (data not exists)')
-
         print(f"{self.numdownloaded} seismograms are downloaded.")
 
     def link_downloaded(self, israwdata=True):
@@ -269,50 +198,6 @@ class SeismicData():
                     else: station.trainingpath = search[0]
                     count += 1
         print(f"{count} files are linked to event list.")
-
-    def remove_response(self, rotate=False): # do not use
-    #     for event in self.events:
-    #         savedir = f"./training/{event.srctime}"
-    #         if not os.path.exists(savedir): # to skip existing folders
-    #             for trace in event.stations:
-    #                 obsfilenames = glob.glob(f"./rawdata/{event.srctime}/*{trace.labelsta['name']}.LH.obspy")
-    #                 if len(obsfilenames) > 0:
-    #                     stream = read(obsfilenames[0])
-    #                     if not os.path.exists(savedir): os.makedirs(savedir)
-    #                     try: 
-    #                         inv = self.client.get_stations(network=stream[0].stats.network, station=stream[0].stats.station, channel="LH*", 
-    #                             level="response", 
-    #                             starttime=stream[0].stats.starttime, endtime=stream[0].stats.starttime+1)
-    #                         newstream = stream.copy()
-    #                         # remove station response
-    #                         newstream.remove_response(inventory=inv, pre_filt=(0.005, 0.006, 30.0, 35.0))
-    #                         # add GRFO response
-    #                         for i in range(3):
-    #                             j = i if len(self.refinv[0][0])>1 else 0
-    #                             sts2 = {'gain': self.refinv[0][0][j].response.get_paz().stage_gain if self.refinv[0][0][j].response.get_paz().stage_sequence_number>1 else 1, #gain set as 1 if only one stage sequence
-    #                                 'poles': self.refinv[0][0][j].response.get_paz().poles,
-    #                                 'sensitivity': self.refinv[0][0][j].response.instrument_sensitivity.value,
-    #                                 'zeros': self.refinv[0][0][j].response.get_paz().zeros}
-    #                             newstream[i].data = simulate_seismometer(newstream[i].data, samp_rate=newstream[0].stats.sampling_rate, paz_simulate=sts2)
-    #                         # for i in range(3):
-    #                         #     sts2 = {'gain': inv[0][0][i].response.get_paz().stage_gain,
-    #                         #         'poles': inv[0][0][i].response.get_paz().poles,
-    #                         #         'sensitivity': inv[0][0][i].response.instrument_sensitivity.value,
-    #                         #         'zeros': inv[0][0][i].response.get_paz().zeros}
-    #                         #     newstream[i].data = simulate_seismometer(newstream[i].data, samp_rate=newstream[0].stats.sampling_rate, paz_simulate=sts2)
-
-    #                         # rotate coordinate from NEZ to RTZ
-    #                         if rotate: 
-    #                             # baz = gps2dist_azimuth(lat1=inv[0][0].latitude, lon1=inv[0][0].longitude, lat2=self.refinv[0][0].latitude, lon2=self.refinv[0][0].longitude)
-    #                             baz = gps2dist_azimuth(lat1=event.srcloc[0], lon1=event.srcloc[1], lat2=trace.labelsta['lat'], lon2=trace.labelsta['lon'])
-    #                             newstream.rotate('NE->RT', back_azimuth=baz[2])
-
-    #                         # save data
-    #                         newstream.write(f"{savedir}/{inv.networks[0].code}.{inv.networks[0].stations[0].code}.LH.obspy", format="PICKLE")
-
-    #                     except:
-    #                         print(f"cannot remove response for {event.srctime}/{inv.networks[0].code}.{inv.networks[0].stations[0].code}.LH.obspy")
-            pass
 
     def deconvolve(self, rawdata, station_components, reference_components):
         proceed = rawdata.copy()
@@ -350,12 +235,10 @@ class SeismicData():
 
         return proceed
 
-    def get_datalist(self, resample=0, rotate=True, preprocess=True, output='./test.hdf5'):
+    def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5'):
         
         # get instrument response for reference station
-        # ref_response = self._getRefResponse() # do not use
         reference_responses = [InstrumentResponse(network='SR', station='GRFO', component=component, timestamp=UTCDateTime(1983, 1, 1)) for component in ['LHE', 'LHN', 'LHZ']]
-        # reference_responses = [InstrumentResponse(network='SR', station='GRFO', component='LHZ', start_end_times='1978.225.00.1993.329.00')] * 3
 
         # set directory
         loaddir = 'rawdata' if preprocess else 'training'
@@ -369,11 +252,6 @@ class SeismicData():
 
             for event in self.events:
                 for trace in event.stations:
-                    # random shifting
-                    # rand.
-
-                    # p info
-                    p_arrival_sample = None
                     p_status = None
                     p_weight = None
                     p_travel_sec = None
@@ -382,14 +260,10 @@ class SeismicData():
                         if record.phase == 'P':
                             p_status = 'manual'
                             p_weight = 1/record.error
-                            # p_travel_sec = event.srctime + record.obstim - fn_starttime(event.srctime)
                             p_calctim = event.srctime + record.calctim
-                            p_travel_sec = event.srctime + record.obstim - fn_starttime_train(p_calctim)
-                            p_arrival_sample = int(p_travel_sec)
-                            # p_arrival_sample = int(p_travel_sec - p_calctim)
+                            p_obstim0 = event.srctime + record.obstim
 
                     # s info
-                    s_arrival_sample = None
                     s_status = None
                     s_weight = None
                     s_travel_sec = None
@@ -398,16 +272,10 @@ class SeismicData():
                         if record.phase == 'S':
                             s_status = 'manual'
                             s_weight = 1/record.error
-                            # s_travel_sec = event.srctime + record.obstim - fn_starttime(event.srctime)
-                            # s_arrival_sample = int(s_travel_sec)
                             s_obstim0 = event.srctime + record.obstim
 
                     obsfilenames = glob.glob(f"./{loaddir}/{event.srctime}/*{trace.labelsta['name']}.LH.obspy")
                     if len(obsfilenames) > 0 and event.srctime > UTCDateTime(1971, 1, 1):
-                        # network_code = None if (not trace.isdataexist) else sta2net[trace.labelsta['name']]['network']
-                        # trace_name = None if (not trace.isdataexist) else f"{sta2net[trace.labelsta['name']]['network']}.{trace.labelsta['name']}.LH.obspy"
-                        # network_code = sta2net[trace.labelsta['name']]['network']
-                        # obsfile_name = f"{sta2net[trace.labelsta['name']]['network']}.{trace.labelsta['name']}.LH.obspy"
                         obsfile_name = obsfilenames[0]
                         network_code = obsfile_name.split('/')[-1].split('.')[0]
                         event_name = f"{trace.labelsta['name']}.{network_code}_{event.srctime.year:4d}{event.srctime.month:02d}{event.srctime.day:02d}{event.srctime.hour:02d}{event.srctime.minute:02d}{event.srctime.second:02d}_EV"
@@ -415,7 +283,6 @@ class SeismicData():
                         stream = read(obsfile_name)
 
                         # sanity check for all three component
-                        # if len(stream) == 3 and len(stream[0])*len(stream[1])*len(stream[2])>0 and all([np.isscalar(i) for i in stream[0].data]) and all([np.isscalar(i) for i in stream[1].data]) and all([np.isscalar(i) for i in stream[2].data]):
                         if len(stream) == 3 and len(stream[0])*len(stream[1])*len(stream[2])>0 and np.isscalar(stream[0].data[0]):
                             
                             # check array size for waveform data
@@ -454,20 +321,20 @@ class SeismicData():
                                     stream.write(f"{savedir}/{network_code}.{trace.labelsta['name']}.LH.obspy", format="PICKLE")
 
                                 # resampling
+                                shift_range = random.randrange(shift[0],shift[1]+1)
                                 if resample != 0:
+                                    shift_bit = random.randrange(resample)
                                     delta = 1/resample
-                                    stream.trim(starttime=p_calctim-100, endtime=p_calctim+1400)
+                                    stream.trim(starttime=fn_starttime_train(p_calctim+shift_range), endtime=fn_endtime_train(p_calctim+shift_range+1))
                                     stream.interpolate(sampling_rate=resample, method='lanczos', a=20)
                                     if len(stream) == 3:
                                         stdshape = (int(1500*resample), 3)
-                                        waveform_data = np.transpose([np.array(stream[0].data, dtype=np.float32), np.array(stream[1].data, dtype=np.float32), np.array(stream[2].data, dtype=np.float32)]) 
+                                        waveform_data = np.transpose([np.array(stream[0].data[shift_bit:], dtype=np.float32), np.array(stream[1].data[shift_bit:], dtype=np.float32), np.array(stream[2].data[shift_bit:], dtype=np.float32)]) 
                                         if waveform_data.shape[0] <= int(1520*resample) and waveform_data.shape[0] > int(1500*resample): waveform_data = waveform_data[:int(1500*resample),0:3]
                                 else:
+                                    shift_bit = 0
                                     delta = 1
-                                    # stdshape = (9000, 3)
-                                    # waveform_data = np.transpose([np.array(stream[0].data, dtype=np.float64), np.array(stream[1].data, dtype=np.float64), np.array(stream[2].data, dtype=np.float64)]) 
-                                    # if waveform_data.shape[0] <= 9020 and waveform_data.shape[0] > 9000: waveform_data = waveform_data[:9000,0:3]
-                                    stream.trim(starttime=p_calctim-100, endtime=p_calctim+1400)
+                                    stream.trim(starttime=p_calctim-100+shift_range, endtime=p_calctim+1400+shift_range)
                                     stdshape = (1500, 3)
                                     if len(stream) == 3:
                                         waveform_data = np.transpose([np.array(stream[0].data, dtype=np.float64), np.array(stream[1].data, dtype=np.float64), np.array(stream[2].data, dtype=np.float64)]) 
@@ -479,16 +346,18 @@ class SeismicData():
                                 conditions = (p_status and s_status and waveform_data.shape==stdshape and not anynan)
 
                                 if conditions:
-                                    s_arrival_sample = int(s_obstim0-fn_starttime_train(p_calctim))
-                                    snr = np.sum(abs(waveform_data[int((s_arrival_sample-10)/delta):int((s_arrival_sample+50)/delta),:]), axis=0) / np.sum(abs(waveform_data[0:int(40/delta),:]), axis=0)
+                                    p_travel_sec = p_obstim0 - fn_starttime_train(p_calctim + shift_range) - shift_bit * delta
+                                    s_travel_sec = s_obstim0 - fn_starttime_train(p_calctim + shift_range) - shift_bit * delta
+                                    snr = np.sum(abs(waveform_data[int((s_travel_sec-10)/delta):int((s_travel_sec+50)/delta),:]), axis=0) / np.sum(abs(waveform_data[0:int(40/delta),:]), axis=0)
                                     dataset = f.create_dataset(f"data/{event_name}",data=waveform_data)
-                                    dataset.attrs['p_arrival_sample'] = int(p_arrival_sample/delta)
+                                    dataset.attrs['p_arrival_sample'] = int(p_travel_sec/delta)
                                     dataset.attrs['p_status'] = p_status
                                     dataset.attrs['p_weight'] = p_weight
-                                    dataset.attrs['s_arrival_sample'] = int(s_arrival_sample/delta)
+                                    dataset.attrs['p_travel_sec'] = p_travel_sec
+                                    dataset.attrs['s_arrival_sample'] = int(s_travel_sec/delta)
                                     dataset.attrs['s_status'] = s_status
                                     dataset.attrs['s_weight'] = s_weight
-                                    dataset.attrs['coda_end_sample'] = int((s_arrival_sample-60)/delta)
+                                    dataset.attrs['coda_end_sample'] = int((s_travel_sec-60)/delta)
                                     dataset.attrs['snr_db'] = snr
                                     dataset.attrs['trace_category'] = 'earthquake_local'
                                     dataset.attrs['network_code'] = network_code
@@ -498,11 +367,9 @@ class SeismicData():
                                     dataset.attrs['trace_start_time'] = str(event.srctime)
                                     dataset.attrs['source_magnitude'] = 0
                                     dataset.attrs['receiver_type'] = 'LH'
-                                    datalist.append({'network_code': network_code, 'receiver_code': trace.labelsta['name'], 'receiver_type': 'LH', 'receiver_latitude': trace.labelsta['lat'], 'receiver_longitude': trace.labelsta['lon'], 'receiver_elevation_m': None, 'p_arrival_sample': int(p_arrival_sample/delta), 'p_status': p_status, 'p_weight': p_weight, 'p_travel_sec': p_travel_sec, 's_arrival_sample': int(s_arrival_sample/delta), 's_status': s_status, 's_weight': s_weight, 'source_id': None, 'source_origin_time': event.srctime, 'source_origin_uncertainty_sec': None, 'source_latitude':event.srcloc[0], 'source_longitude': event.srcloc[1], 'source_error_sec': None, 'source_gap_deg': None, 'source_horizontal_uncertainty_km': None, 'source_depth_km': event.srcloc[2], 'source_depth_uncertainty_km': None, 'source_magnitude': None, 'source_magnitude_type': None, 'source_magnitude_author': None, 'source_mechanism_strike_dip_rake': None, 'source_distance_deg': trace.labelsta['dist'], 'source_distance_km': trace.labelsta['dist'] * 111.1, 'back_azimuth_deg': trace.labelsta['azi'], 'snr_db': snr, 'coda_end_sample': [[int((s_arrival_sample-60)/delta)]], 'trace_start_time': event.srctime, 'trace_category': 'earthquake_local', 'trace_name': event_name})
+                                    datalist.append({'network_code': network_code, 'receiver_code': trace.labelsta['name'], 'receiver_type': 'LH', 'receiver_latitude': trace.labelsta['lat'], 'receiver_longitude': trace.labelsta['lon'], 'receiver_elevation_m': None, 'p_arrival_sample': int(p_travel_sec/delta), 'p_status': p_status, 'p_weight': p_weight, 'p_travel_sec': p_travel_sec, 's_arrival_sample': int(s_travel_sec/delta), 's_status': s_status, 's_weight': s_weight, 'source_id': None, 'source_origin_time': event.srctime, 'source_origin_uncertainty_sec': None, 'source_latitude':event.srcloc[0], 'source_longitude': event.srcloc[1], 'source_error_sec': None, 'source_gap_deg': None, 'source_horizontal_uncertainty_km': None, 'source_depth_km': event.srcloc[2], 'source_depth_uncertainty_km': None, 'source_magnitude': None, 'source_magnitude_type': None, 'source_magnitude_author': None, 'source_mechanism_strike_dip_rake': None, 'source_distance_deg': trace.labelsta['dist'], 'source_distance_km': trace.labelsta['dist'] * 111.1, 'back_azimuth_deg': trace.labelsta['azi'], 'snr_db': snr, 'coda_end_sample': [[int((s_travel_sec-60)/delta)]], 'trace_start_time': event.srctime, 'trace_category': 'earthquake_local', 'trace_name': event_name})
                             except ValueError as e:
                                 print(f"Value error for {obsfile_name}: {e}")
-                            # except:
-                            #     pass
                             # except:
                             #     print(f"Unexpect error for {obsfile_name}")
 
@@ -512,7 +379,6 @@ class SeismicData():
     def __init__(self, client: Client, tables: list, autofetch=False):
         self.client = client
         self.numdownloaded = 0
-        # self.refinv = self._getRefResponse()
 
         # create event list from tables
         self.events = []
@@ -572,11 +438,11 @@ if __name__ == '__main__':
 
     # create dataframe
     # datalist = data.get_datalist(resample=8.0)
-    datalist = data.get_datalist(resample=4.0, rotate=True, preprocess=True, output='./updeANMO.hdf5')
+    datalist = data.get_datalist(resample=4.0, rotate=True, preprocess=False, output='./updeANMO_shift.hdf5')
     random.shuffle(datalist)
                 
     # df = pd.DataFrame(datalist[:int(0.7*len(datalist))])
     df = pd.DataFrame(datalist)
-    df.to_csv('training_PandS_updeANMO.csv', index=False)
+    df.to_csv('training_PandS_updeANMO_shift.csv', index=False)
     # df = pd.DataFrame(datalist[int(0.7*len(datalist)):])
     # df.to_csv('training_PandS_upANMO_test.csv', index=False)

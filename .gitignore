@@ -17,6 +17,7 @@ resp.dir
 *.pkl
 *.h5
 *.hdf5
+AlphaPK_*/
 
 # table
 training*.csv
