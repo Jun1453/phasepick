@@ -1,22 +1,25 @@
 
 import os
-import sys
+import csv
 import glob
 import json
 import h5py
 import time
 import struct
+import shutil
 import numpy as np
 import pandas as pd
 import random
 import pickle
-# from multiprocessing.connection import Client
-from multiprocessing import Pool
-from scipy.fft import fft, ifft
+# import EQTransformer as eqt
+from multiprocessing import Pool, cpu_count
+from multiprocessing.pool import ThreadPool
+from scipy.fft import rfft, irfft
 from obspy.clients.fdsn import Client
 from obspy.core import UTCDateTime
 from obspy import read
-from obspy.geodetics.base import gps2dist_azimuth
+from obspy.taup import TauPyModel
+from obspy.geodetics.base import gps2dist_azimuth, locations2degrees
 from obspy.signal.invsim import simulate_seismometer
 
 fn_starttime_full = lambda srctime: srctime - 0.5 * 60 * 60
@@ -24,8 +27,8 @@ fn_endtime_full = lambda srctime: srctime + 2 * 60 * 60
 fn_starttime_train = lambda srctime: srctime - 250
 fn_endtime_train = lambda srctime: srctime + 1250
 
-with open('sta2net.json') as sta2net_json:
-    sta2net = json.load(sta2net_json)
+# with open('sta2net.json') as sta2net_json:
+#     sta2net = json.load(sta2net_json)
 
 class Event():
     def __init__(self, time: UTCDateTime, lat, lon, dep):
@@ -132,6 +135,33 @@ class SeismicData():
                     matchstation.records.append(nlrecord)
         return numNewEvents
     
+    def _folder2events(self, filename):
+        table = pd.read_csv(filename, delim_whitespace=True)
+        numNewEvents = 0
+        # for index, row in table[0:100].iterrows(): #quick
+        for index, row in table.iterrows(): #full
+            timestamp = f"{row['year']}-{row['day']:03}T{row['hour']:02}:{row['min']:02}:{min(row['sec'],59.999)}Z"
+            try: nlevent = Event(time=UTCDateTime(timestamp),
+                    lat=row['eqlat'], lon=row['eqlon'], dep=row['eqdep'])
+            except: print(row)
+            nlstation = Station(row['station'], row['stalat'], row['stalon'], row['dist'], row['azi'])
+            nlrecord = Record(row['phase'], row['residual'], row['error'], row['ellipcor'], row['crustcor'], row['obstim'], row['calctim'])
+            matchevent = self._findevent(nlevent)
+            if matchevent is None:
+                # print(f"event not found, new event {timestamp} added")
+                nlstation.records.append(nlrecord)
+                nlevent.stations.append(nlstation)
+                self.events.append(nlevent)
+                numNewEvents += 1
+            else:
+                matchstation = matchevent._findstation(nlstation)
+                if matchstation is None:
+                    nlstation.records.append(nlrecord)
+                    matchevent.stations.append(nlstation)
+                else:
+                    matchstation.records.append(nlrecord)
+        return numNewEvents
+    
     def _fetch_par(self, event, skip_existing_events=False, skip_existing_stations=True):
         srctime = event.srctime
         srctime.precision = 3
@@ -176,7 +206,7 @@ class SeismicData():
                         except:
                             print(srctime, f"{station.labelsta['name']} ({inv.networks[0].code}-{inv.networks[0].stations[0].code})", '... X (data not exists)')
 
-    def fetch(self, skip_existing_events=False, skip_existing_stations=False):
+    def fetch(self):
         self.numdownloaded = 0
         p = Pool(10) # set parallel fetch
         p.map(self._fetch_par, self.events)
@@ -212,30 +242,30 @@ class SeismicData():
             if reference.component != station.component: raise ValueError(f"Cannot match component for waveform and reference response: {str(rawdata)}")
 
             # fast-fourier-transform the trace
-            fdomain_data = fft(rawdata[i].data)
+            fdomain_data = rfft(rawdata[i].data)
 
             # get frequency array from loaded response
             freq = np.array(list(reference.sensitivity.keys()))
 
             # interpolate frequency array to fit waveform data
-            freq_interp = np.linspace(freq.min(), freq.max(), num=len(fdomain_data)//2)
+            freq_interp = np.linspace(freq.min(), freq.max(), num=len(fdomain_data))
 
             # interpolate reference and target station response
             ref_resp_interp = np.interp(freq_interp, list(reference.sensitivity.keys()), list(reference.sensitivity.values()))
             sta_resp_interp = np.interp(freq_interp, list(station.sensitivity.keys()), list(station.sensitivity.values()))
 
             # deconvolve and convolve the trace
-            fdomain_data[:len(fdomain_data)//2] = fdomain_data[:len(fdomain_data)//2] / sta_resp_interp * ref_resp_interp
-            fdomain_data[len(fdomain_data)//2:] = np.flip(fdomain_data[:len(fdomain_data)//2]) / sta_resp_interp * ref_resp_interp
+            fdomain_data = fdomain_data / sta_resp_interp * ref_resp_interp
             fdomain_data[0] = complex(0, 0)
 
             # inverse fast-fourier-transform the trace
-            deconvolved_data = ifft(fdomain_data)
+            deconvolved_data = irfft(fdomain_data)
             proceed[i].data = deconvolved_data / max(deconvolved_data)
 
         return proceed
 
     def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5'):
+        if not shift: shift = (0,0)
         
         # get instrument response for reference station
         reference_responses = [InstrumentResponse(network='SR', station='GRFO', component=component, timestamp=UTCDateTime(1983, 1, 1)) for component in ['LHE', 'LHN', 'LHZ']]
@@ -260,7 +290,7 @@ class SeismicData():
                         if record.phase == 'P':
                             p_status = 'manual'
                             p_weight = 1/record.error
-                            p_calctim = event.srctime + record.calctim
+                            p_calctim0 = event.srctime + record.calctim
                             p_obstim0 = event.srctime + record.obstim
 
                     # s info
@@ -325,7 +355,7 @@ class SeismicData():
                                 if resample != 0:
                                     shift_bit = random.randrange(resample)
                                     delta = 1/resample
-                                    stream.trim(starttime=fn_starttime_train(p_calctim+shift_range), endtime=fn_endtime_train(p_calctim+shift_range+1))
+                                    stream.trim(starttime=fn_starttime_train(p_calctim0+shift_range), endtime=fn_endtime_train(p_calctim0+shift_range+1))
                                     stream.interpolate(sampling_rate=resample, method='lanczos', a=20)
                                     if len(stream) == 3:
                                         stdshape = (int(1500*resample), 3)
@@ -334,7 +364,7 @@ class SeismicData():
                                 else:
                                     shift_bit = 0
                                     delta = 1
-                                    stream.trim(starttime=p_calctim-100+shift_range, endtime=p_calctim+1400+shift_range)
+                                    stream.trim(starttime=p_calctim0-100+shift_range, endtime=p_calctim0+1400+shift_range)
                                     stdshape = (1500, 3)
                                     if len(stream) == 3:
                                         waveform_data = np.transpose([np.array(stream[0].data, dtype=np.float64), np.array(stream[1].data, dtype=np.float64), np.array(stream[2].data, dtype=np.float64)]) 
@@ -343,21 +373,29 @@ class SeismicData():
                                 # check for problematic values in array
                                 waveform_data = waveform_data.astype(np.float32)
                                 anynan = np.isnan(waveform_data).any()
+                                # conditions = ((p_status or s_status) and waveform_data.shape==stdshape and not anynan)
                                 conditions = (p_status and s_status and waveform_data.shape==stdshape and not anynan)
 
                                 if conditions:
-                                    p_travel_sec = p_obstim0 - fn_starttime_train(p_calctim + shift_range) - shift_bit * delta
-                                    s_travel_sec = s_obstim0 - fn_starttime_train(p_calctim + shift_range) - shift_bit * delta
-                                    snr = np.sum(abs(waveform_data[int((s_travel_sec-10)/delta):int((s_travel_sec+50)/delta),:]), axis=0) / np.sum(abs(waveform_data[0:int(40/delta),:]), axis=0)
                                     dataset = f.create_dataset(f"data/{event_name}",data=waveform_data)
-                                    dataset.attrs['p_arrival_sample'] = int(p_travel_sec/delta)
-                                    dataset.attrs['p_status'] = p_status
-                                    dataset.attrs['p_weight'] = p_weight
-                                    dataset.attrs['p_travel_sec'] = p_travel_sec
-                                    dataset.attrs['s_arrival_sample'] = int(s_travel_sec/delta)
-                                    dataset.attrs['s_status'] = s_status
-                                    dataset.attrs['s_weight'] = s_weight
-                                    dataset.attrs['coda_end_sample'] = int((s_travel_sec-60)/delta)
+                                    if p_status:
+                                        p_travel_sec = p_obstim0 - fn_starttime_train(p_calctim0 + shift_range) - shift_bit * delta
+                                        dataset.attrs['p_arrival_sample'] = int(p_travel_sec/delta)
+                                        dataset.attrs['p_status'] = p_status
+                                        dataset.attrs['p_weight'] = p_weight
+                                        dataset.attrs['p_travel_sec'] = p_travel_sec
+                                    if s_status:
+                                        s_travel_sec = s_obstim0 - fn_starttime_train(p_calctim0 + shift_range) - shift_bit * delta
+                                        dataset.attrs['s_arrival_sample'] = int(s_travel_sec/delta)
+                                        dataset.attrs['s_status'] = s_status
+                                        dataset.attrs['s_weight'] = s_weight
+                                        coda_end_sample = int((s_travel_sec-60)/delta)
+                                        snr = (np.sum(abs(waveform_data[int((s_travel_sec-10)/delta):int((s_travel_sec+50)/delta),:]), axis=0) / (60/delta)) / (np.sum(abs(waveform_data[0:int(40/delta),:]), axis=0) / (40/delta))
+                                    else:
+                                        coda_end_sample = int((p_travel_sec+400)/delta)
+                                        snr = (np.sum(abs(waveform_data[int((p_travel_sec+20)/delta):int((p_travel_sec+400)/delta),:]), axis=0) / (380/delta)) / (np.sum(abs(waveform_data[0:int(40/delta),:]), axis=0) / (40/delta)) 
+                                    
+                                    dataset.attrs['coda_end_sample'] = coda_end_sample
                                     dataset.attrs['snr_db'] = snr
                                     dataset.attrs['trace_category'] = 'earthquake_local'
                                     dataset.attrs['network_code'] = network_code
@@ -367,7 +405,7 @@ class SeismicData():
                                     dataset.attrs['trace_start_time'] = str(event.srctime)
                                     dataset.attrs['source_magnitude'] = 0
                                     dataset.attrs['receiver_type'] = 'LH'
-                                    datalist.append({'network_code': network_code, 'receiver_code': trace.labelsta['name'], 'receiver_type': 'LH', 'receiver_latitude': trace.labelsta['lat'], 'receiver_longitude': trace.labelsta['lon'], 'receiver_elevation_m': None, 'p_arrival_sample': int(p_travel_sec/delta), 'p_status': p_status, 'p_weight': p_weight, 'p_travel_sec': p_travel_sec, 's_arrival_sample': int(s_travel_sec/delta), 's_status': s_status, 's_weight': s_weight, 'source_id': None, 'source_origin_time': event.srctime, 'source_origin_uncertainty_sec': None, 'source_latitude':event.srcloc[0], 'source_longitude': event.srcloc[1], 'source_error_sec': None, 'source_gap_deg': None, 'source_horizontal_uncertainty_km': None, 'source_depth_km': event.srcloc[2], 'source_depth_uncertainty_km': None, 'source_magnitude': None, 'source_magnitude_type': None, 'source_magnitude_author': None, 'source_mechanism_strike_dip_rake': None, 'source_distance_deg': trace.labelsta['dist'], 'source_distance_km': trace.labelsta['dist'] * 111.1, 'back_azimuth_deg': trace.labelsta['azi'], 'snr_db': snr, 'coda_end_sample': [[int((s_travel_sec-60)/delta)]], 'trace_start_time': event.srctime, 'trace_category': 'earthquake_local', 'trace_name': event_name})
+                                    datalist.append({'network_code': network_code, 'receiver_code': trace.labelsta['name'], 'receiver_type': 'LH', 'receiver_latitude': trace.labelsta['lat'], 'receiver_longitude': trace.labelsta['lon'], 'receiver_elevation_m': None, 'p_arrival_sample': int(p_travel_sec/delta) if p_status else None, 'p_status': p_status, 'p_weight': p_weight, 'p_travel_sec': p_travel_sec, 's_arrival_sample': int(s_travel_sec/delta) if s_status else None, 's_status': s_status, 's_weight': s_weight, 'source_id': None, 'source_origin_time': event.srctime, 'source_origin_uncertainty_sec': None, 'source_latitude':event.srcloc[0], 'source_longitude': event.srcloc[1], 'source_error_sec': None, 'source_gap_deg': None, 'source_horizontal_uncertainty_km': None, 'source_depth_km': event.srcloc[2], 'source_depth_uncertainty_km': None, 'source_magnitude': None, 'source_magnitude_type': None, 'source_magnitude_author': None, 'source_mechanism_strike_dip_rake': None, 'source_distance_deg': trace.labelsta['dist'], 'source_distance_km': trace.labelsta['dist'] * 111.1, 'back_azimuth_deg': trace.labelsta['azi'], 'snr_db': snr, 'coda_end_sample': [[coda_end_sample]], 'trace_start_time': event.srctime, 'trace_category': 'earthquake_local', 'trace_name': event_name})
                             except ValueError as e:
                                 print(f"Value error for {obsfile_name}: {e}")
                             # except:
@@ -376,73 +414,284 @@ class SeismicData():
         return datalist
 
 
-    def __init__(self, client: Client, tables: list, autofetch=False):
+    def __init__(self, client: Client, paths: list, autofetch=False, isTable=True):
         self.client = client
         self.numdownloaded = 0
 
-        # create event list from tables
+        # create event list from paths
         self.events = []
-        for table in tables:
-            numevent = self._table2events(table)
-            print(f"table read successfully, {numevent} events added")
+        for path in paths:
+            if isTable:
+                numevent = self._table2events(path)
+                print(f"table read successfully, {numevent} events added")
+            else:
+                numevent = self._folder2events(path)
+                print(f"folder read successfully, {numevent} events added")
 
         # fetch data if autofetch toggled
         if autofetch: self.fetch(skip_existing_events=False)
     
 
 class Picker():
-    def __init__(self):
-        pass
-    def train(self, data: SeismicData):
-        pass
+    def __init__(self, default_p_calctime=450):
+        self.client = Client('IRIS')
+        self.station_list = None
+        self.station_dict = None
+        self.default_p_calctime = default_p_calctime   
+
+    def create_dataset(self, table_filenames):
+        "create dataset from scretch"
+        self.data = SeismicData(self.client, table_filenames, autofetch=False)
+
+    def create_dataset_from_folder(self, folder_paths):
+        "create dataset from scretch"
+        self.data = SeismicData(self.client, folder_paths, autofetch=False, isTable=False)
+
+    def load_dataset(self, filename, verbose=False):
+        "load existing dataset"
+        with open(filename, 'rb') as file:
+            loaddata = pickle.load(file)
+        self.data = SeismicData(self.client, [])
+        self.data.events = loaddata.events
+        # debug message
+        if verbose: 
+            printphase = [record.phase for record in self.data.events[0].stations[3].records]
+            print(f"#1 event has {len(self.data.events[0])} stations, records of #4 event: {', '.join(printphase)}")
+    
+    def dump_dataset(self, filename):
+        with open(filename, 'wb') as file:
+            pickle.dump(self.data, file, pickle.HIGHEST_PROTOCOL)
+
+    def get_stationlist(self):
+        station_list = []
+        station_dict = {}
+        for event in self.data.events:
+            for station in event.stations:
+                if not station.labelsta['name'] in station_list:
+                    station_list.append(station.labelsta['name'])
+                    station_dict[station.labelsta['name']] = station
+        self.station_list = station_list
+        self.station_dict = station_dict
+        return self.station_list, self.station_dict
+    
+
+    def _resampling(st):
+        need_resampling = [tr for tr in st if tr.stats.sampling_rate != resample_rate]
+        if len(need_resampling) > 0:
+        # print('resampling ...', flush=True)    
+            for indx, tr in enumerate(need_resampling):
+                if tr.stats.delta < 1/resample_rate:
+                    tr.filter('lowpass',freq=resample_rate*0.45,zerophase=True)
+                tr.resample(resample_rate)
+                tr.stats.sampling_rate = resample_rate
+                tr.stats.delta = 1/resample_rate
+                tr.data.dtype = 'float32' #'int32'
+                st.remove(tr)
+                st.append(tr)
+                
+        return st
+    
+    def _prepare_picking_par(self, station_code, overlap=0):
+        output_name = station_code
+        station = self.station_dict[station_code]
+        
+        try:
+            os.remove(output_name+'.hdf5')
+            os.remove(output_name+".csv")
+        except Exception:
+            pass
+        
+        HDF = h5py.File(f'{self.save_dir}/{output_name}.hdf5', 'a')
+        HDF.create_group("data")
+    
+        csvfile = open(f'{self.save_dir}/{output_name}.csv', 'w')
+        output_writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        output_writer.writerow(['trace_name', 'start_time'])
+        csvfile.flush()   
+    
+        filenames = glob.glob(f'{self.waveform_dir}/*/*.{station_code}.*') #[join(station, ev) for ev in listdir(station) if ev.split("/")[-1] != ".DS_Store"];
+        
+        time_slots, comp_types = [], []
+        
+        print('============ Station {} has {} chunks of data.'.format(station_code, len(filenames)), flush=True)  
+            
+        count_chuncks=0; c1=0; c2=0; c3=0
+        
+        for filename in filenames:
+            st = read(filename, debug_headers=True)
+            component_num = len(st)
+
+            if component_num == 3:
+                count_chuncks += 1; c3 += 1
+                org_samplingRate = st[0].stats.sampling_rate
+        
+                time_slots.append((st[0].stats.starttime, st[0].stats.endtime))
+                comp_types.append(3)
+                # print('  * '+station_code+' ('+str(count_chuncks)+') .. '+month.split('T')[0]+' --> '+month.split('__')[1].split('T')[0]+' .. 1 components .. sampling rate: '+str(org_samplingRate)) 
+                
+                if len([tr for tr in st if tr.stats.sampling_rate != resample_rate]) != 0:
+                    try:
+                        st.interpolate(sampling_rate=resample_rate, method='lanczos', a=20)
+                    except Exception:
+                        st=self._resampling(st) 
+                
+                # longest = st[0].stats.npts
+                # start_time = st[0].stats.starttime
+                # end_time = st[0].stats.endtime
+                
+                # for tt in st:
+                #     if tt.stats.npts > longest:
+                #         longest = tt.stats.npts
+                #         start_time = tt.stats.starttime
+                #         end_time = tt.stats.endtime
+
+                ####
+                target_srctime = UTCDateTime(filename.split('/')[-2])
+                p_calctim = self.default_p_calctime
+                for event in self.data.events:
+                    if event.srctime == target_srctime:
+                        ref_trace = event._findstation(station)
+                        try:
+                            p_calctim = self.model.get_travel_times(event.srcloc[2], ref_trace.labelsta['dist'], ['P'])[0].time
+                            print("Using calculated P arrival window for", output_name, filename)
+                        except:
+                            print("Using default P arrival window for", output_name, filename)
+                        break
+                    
+                start_time = fn_starttime_train(target_srctime+p_calctim)
+                end_time = fn_endtime_train(target_srctime+p_calctim)
+                st.trim(start_time, end_time, pad=True, fill_value=0)
+                # print(filename, target_srctime, p_calctim, start_time)
+                ####
+
+                chanL = [st[0].stats.channel[-1], st[1].stats.channel[-1], st[2].stats.channel[-1]]
+                w = st.slice(start_time, start_time+1500)                    
+                npz_data = np.zeros([6000,3])
+                
+                try:
+                    npz_data[:,2] = w[chanL.index('Z')].data[:6000]
+                    npz_data[:,0] = w[chanL.index('T')].data[:6000]
+                    npz_data[:,1] = w[chanL.index('R')].data[:6000]
+                
+                    tr_name = st[0].stats.station+'_'+st[0].stats.network+'_'+st[0].stats.channel[:2]+'_'+filename.split('/')[-2]
+                    HDF = h5py.File(f'{self.save_dir}/{output_name}.hdf5', 'r')
+                    dsF = HDF.create_dataset('data/'+tr_name, npz_data.shape, data = npz_data, dtype= np.float32)        
+                    dsF.attrs["trace_name"] = tr_name
+                    dsF.attrs["receiver_code"] = station_code
+                    dsF.attrs["network_code"] = st[0].stats.network
+                    dsF.attrs["receiver_latitude"] = station.labelsta['lat'] #if station.labelsta['lat'] else st[0].stats.network
+                    dsF.attrs["receiver_longitude"] = station.labelsta['lon'] #if station.labelsta['lon'] else st[0].stats.network
+                    # dsF.attrs["receiver_elevation_m"] = 0
+                    dsF.attrs["sampling_rate"] = resample_rate
+                        
+                    start_time_str = str(start_time)   
+                    start_time_str = start_time_str.replace('T', ' ')                 
+                    start_time_str = start_time_str.replace('Z', '')          
+                    dsF.attrs['trace_start_time'] = start_time_str
+                    HDF.flush()
+                    output_writer.writerow([str(tr_name), start_time_str])  
+                    csvfile.flush()   
+                except:
+                    print("Failed to write data for", output_name, filename)
+            else: print(output_name, filename, component_num)                    
+                
+                    
+            st = None
+                
+        HDF.close() 
+        
+        dd = pd.read_csv(f'{self.save_dir}/{output_name}.csv')
+                
+        
+        # assert count_chuncks == len(filenames)  
+        # assert sum(slide_estimates)-(fln/100) <= len(dd) <= sum(slide_estimates)+10
+        self.data_track[output_name]=[time_slots, comp_types]
+        print(f" Station {output_name} had {len(filenames)} chuncks of data") 
+        print(f"{len(dd)} slices were written, {len(filenames)} were expected.")
+        print(f"Number of 1-components: {c1}. Number of 2-components: {c2}. Number of 3-components: {c3}.")
+        try:
+            print(f"Original samplieng rate: {org_samplingRate}.") 
+            self.repfile.write(f' Station {output_name} had {len(filenames)} chuncks of data, {len(dd)} slices were written, {int(len(filenames))} were expected. Number of 1-components: {c1}, Number of 2-components: {c2}, number of 3-components: {c3}, original samplieng rate: {org_samplingRate}\n')
+        except Exception:
+            pass
+
+    def prepare_catalog(self, waveform_dir: str, preproc_dir: str, save_dir: str, n_processor=None):
+        'Prepare hdf for predictor function following EQTransformer (original script by mostafamousavi) for catalog events.'
+        self.waveform_dir = waveform_dir
+        self.preproc_dir = preproc_dir
+        self.save_dir = save_dir
+        if os.path.isdir(save_dir):
+            print(f' *** " {save_dir} " directory already exists!')
+            inp = input(" * --> Do you want to create a new empty folder? Type (Yes or y) ")
+            if inp.lower() == "yes" or inp.lower() == "y":        
+                shutil.rmtree(save_dir)  
+        os.makedirs(save_dir)
+
+        if not os.path.exists(preproc_dir):
+            os.makedirs(preproc_dir)
+        self.repfile = open(os.path.join(preproc_dir,"prepare_report.txt"), 'w')
+
+        if self.station_dict is None or self.station_list is None:
+            self.get_stationlist()
+
+        self.model = TauPyModel(model="prem")
+        self.data_track = dict()
+
+        if not n_processor:
+            n_processor = cpu_count()
+        with ThreadPool(n_processor) as p:
+            p.map(self._prepare_picking_par, self.station_list) 
+        with open(os.path.join(preproc_dir,'time_tracks.pkl'), 'wb') as f:
+            pickle.dump(self.data_track, f, pickle.HIGHEST_PROTOCOL)
+
 
 if __name__ == '__main__':
-    client = Client('IRIS')
 
-    # create dataset from scretch
-    # path = "/Users/jun/Downloads/drive-download-20220512T014633Z-001"
-    # data = SeismicData(client, [f"{path}/Pcomb.4.07.09.table",f"{path}/Scomb.4.07.09.table"], autofetch=False)
-    # with open('data.pkl', 'wb') as outp:
-    #     pickle.dump(data, outp, pickle.HIGHEST_PROTOCOL)
-
-    # open existing dataset
-    # with open('data.pkl', 'rb') as inp:
-    #     loaddata = pickle.load(inp)
-    # data = SeismicData(client, [])
-    # data.events = loaddata.events
-
-    # fetch
-    # time.sleep(600)
-    # data.fetch()
-    # # data.fetch(skip_existing_events=False)
-    # with open('data_fetched.pkl', 'wb') as outp:
-    #     pickle.dump(data, outp, pickle.HIGHEST_PROTOCOL)
-
-    # link
-    # data.link_downloaded(israwdata=True)
-    # with open('data_fetched.pkl', 'wb') as outp:
-    #     pickle.dump(data, outp, pickle.HIGHEST_PROTOCOL)
-
-    # just open existing fetched dataset
-    with open('data_fetched.pkl', 'rb') as inp:
-        loaddata = pickle.load(inp)
-    data = SeismicData(client, [])
-    data.events = loaddata.events
+    table_dir = "/Users/jun/Downloads/drive-download-20220512T014633Z-001"
+    table_filenames = [f"{table_dir}/Pcomb.4.07.09.table",f"{table_dir}/Scomb.4.07.09.table"]
+    resample_rate = 4.0
     
-    # testing output
-    printphase = [record.phase for record in data.events[0].stations[3].records]
-    print(f"#1 event has {len(data.events[0])} stations, records of #4 event: {', '.join(printphase)}")
+    # # create dataset from scretch and dump
+    # picker = Picker()
+    # picker.create_dataset(table_filenames)
+    # picker.dump_dataset("data.pkl")
+    
+    # # create dataset from scretch, fetch seismic data, and dump
+    # picker = Picker()
+    # picker.create_dataset(table_filenames)
+    # picker.data.fetch()
+    # picker.dump_dataset("data_fetched.pkl")
 
-    # # # remove instrument response
-    # # # data.remove_response(rotate=True)
-
-    # create dataframe
-    # datalist = data.get_datalist(resample=8.0)
-    datalist = data.get_datalist(resample=4.0, rotate=True, preprocess=False, output='./updeANMO_shift.hdf5')
+    # # create dataset and link existing seismic data in local device
+    # picker = Picker()
+    # picker.create_dataset(table_filenames)
+    # picker.data.link_downloaded(israwdata=True)
+    # picker.dump_dataset("data_fetched.pkl")
+    
+    # load fetched dataset, remove instrument response, and create training dataset
+    picker = Picker()
+    picker.load_dataset('data_fetched.pkl', verbose=True)
+    # datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess=False, output='./updeANMO_shift.hdf5')
+    datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess=False, shift=False, output='./updeANMO.hdf5')
     random.shuffle(datalist)
-                
-    # df = pd.DataFrame(datalist[:int(0.7*len(datalist))])
     df = pd.DataFrame(datalist)
-    df.to_csv('training_PandS_updeANMO_shift.csv', index=False)
-    # df = pd.DataFrame(datalist[int(0.7*len(datalist)):])
-    # df.to_csv('training_PandS_upANMO_test.csv', index=False)
+    df.to_csv('training_PandS_updeANMO.csv', index=False)
+
+    # # train a model with EQTransformer
+    # model_name="updeANMO_shift"
+    # trainer_name=f"test_trainer_{model_name}"
+    # tester_name=f"test_tester_{model_name}"
+    # eqt.trainer(input_hdf5=f'{model_name}.hdf5', input_csv=f'training_PandS_{model_name}.csv', output_name=trainer_name,
+    #     cnn_blocks=2, lstm_blocks=1, padding='same', activation='relu', drop_rate=0.2, label_type='gaussian',
+    #     add_event_r=0.6, add_gap_r=0.2, shift_event_r=0.9, add_noise_r=0.5, mode='generator',
+    #     train_valid_test_split=[0.60, 0.20, 0.20], batch_size=20, epochs=10, patience=2, pre_emphasis=True,#pre_emphasis=False
+    #     gpuid=None, gpu_limit=None, input_dimention=(6000, 3))
+    # eqt.tester(input_hdf5=f'{model_name}.hdf5', input_testset=f'{trainer_name}_outputs/test.npy', 
+    #            input_model=f'{trainer_name}_outputs/final_model.h5', output_name=tester_name,
+    #            detection_threshold=0.20, P_threshold=0.1, S_threshold=0.1, number_of_plots=30, estimate_uncertainty=True, number_of_sampling=5,
+    #            input_dimention=(6000, 3), normalization_mode='std', mode='generator', batch_size=10, gpuid=None, gpu_limit=None)
+
+    # # load dataset and prepare prediction data
+    # picker = Picker(default_p_calctime=450)
+    # picker.load_dataset('data_fetched.pkl', verbose=True)
+    # picker.prepare_catalog('./training', './hmsl_preproc', './hmsl_hdfs', 10)

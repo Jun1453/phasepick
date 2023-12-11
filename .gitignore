@@ -5,11 +5,11 @@ __pycache__
 
 # env
 EQTransformer
-venv-3.7
+venv-3.7*
 
 # data
 downloads_*
-test_*
+test*
 training
 training_old
 rawdata
@@ -18,12 +18,18 @@ resp.dir
 *.h5
 *.hdf5
 AlphaPK_*/
+hmsl_*/
+*_pred/
+*backups
+*_old
 
 # table
 training*.csv
 sta2net*.json
 data.json
 json
+updeANMO*.csv
+*bug.csv
 
 # log
 message.log
