@@ -326,7 +326,40 @@ class SeismicData():
                             
                             try:
                                 # preprocessing
-                                if preprocess:
+                                if preprocess=='bandpass':
+                                    # remove instrument response
+                                    # inv = self.client.get_stations(station=f"{trace.labelsta['name']}", starttime=event.srctime, endtime=event.srctime+1)
+                                    # stream.remove_response(inventory=inv, pre_filt=(0.005, 0.006, 30.0, 35.0))
+                                    # calculate azimuth angle
+                                    azimuth = gps2dist_azimuth(lat1=trace.labelsta['lat'], lon1=trace.labelsta['lon'], lat2=event.srcloc[0], lon2=event.srcloc[1])[2] if rotate is True else 180
+                                    # rotate to TRZ coordinate
+                                    stream.rotate('NE->RT', back_azimuth=azimuth)
+                                    # bandpass filter
+                                    stream.filter('bandpass', freqmin=0.03, freqmax=0.05, corners=2, zerophase=True)
+                                    #save data
+                                    srctime = event.srctime
+                                    srctime.precision = 3
+
+                                    savedir = f"./training_bandpass/{srctime}"
+                                    if not os.path.exists(savedir): os.makedirs(savedir)
+                                    stream.write(f"{savedir}/{network_code}.{trace.labelsta['name']}.LH.obspy", format="PICKLE")
+
+                                elif preprocess=='onlyrot':
+                                    # calculate azimuth angle
+                                    azimuth = gps2dist_azimuth(lat1=trace.labelsta['lat'], lon1=trace.labelsta['lon'], lat2=event.srcloc[0], lon2=event.srcloc[1])[2] if rotate is True else 180
+                                    # rotate to TRZ coordinate
+                                    stream.rotate('NE->RT', back_azimuth=azimuth)
+                                    # bandpass filter
+                                    # stream.filter('bandpass', freqmin=0.03, freqmax=0.05, corners=2, zerophase=True)
+                                    #save data
+                                    srctime = event.srctime
+                                    srctime.precision = 3
+
+                                    savedir = f"./training_onlyrot/{srctime}"
+                                    if not os.path.exists(savedir): os.makedirs(savedir)
+                                    stream.write(f"{savedir}/{network_code}.{trace.labelsta['name']}.LH.obspy", format="PICKLE")
+
+                                elif preprocess:
                                     # get instrument response for waveform station
                                     # station_response = InstrumentResponse(network='GE', station='UGM', component='LHZ', start_end_times='2006.180.00.3001.001.00')
                                     station_responses = [InstrumentResponse(network=network_code, station=trace.labelsta['name'], component=component, timestamp=event.srctime) for component in ['LHE', 'LHN', 'LHZ']]
@@ -667,15 +700,31 @@ if __name__ == '__main__':
     # picker.create_dataset(table_filenames)
     # picker.data.link_downloaded(israwdata=True)
     # picker.dump_dataset("data_fetched.pkl")
+
+    # # load fetched dataset, remove instrument response, bandpass frequency, and create training dataset
+    # picker = Picker()
+    # picker.load_dataset('data_fetched.pkl', verbose=True)
+    # datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess='bandpass', output='./upbpANMO_shift.hdf5')
+    # random.shuffle(datalist)
+    # df = pd.DataFrame(datalist)
+    # df.to_csv('training_PandS_upbpANMO_shift.csv', index=False)
     
-    # load fetched dataset, remove instrument response, and create training dataset
+    # load fetched dataset, remove instrument response, bandpass frequency, and create training dataset
     picker = Picker()
     picker.load_dataset('data_fetched.pkl', verbose=True)
-    # datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess=False, output='./updeANMO_shift.hdf5')
-    datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess=False, shift=False, output='./updeANMO.hdf5')
+    datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess='onlyrot', output='./uprotANMO_shift.hdf5')
     random.shuffle(datalist)
     df = pd.DataFrame(datalist)
-    df.to_csv('training_PandS_updeANMO.csv', index=False)
+    df.to_csv('training_PandS_uprotANMO_shift.csv', index=False)
+    
+    # # load fetched dataset, remove instrument response, and create training dataset
+    # picker = Picker()
+    # picker.load_dataset('data_fetched.pkl', verbose=True)
+    # # datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess=False, output='./updeANMO_shift.hdf5')
+    # datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess=False, shift=False, output='./updeANMO.hdf5')
+    # random.shuffle(datalist)
+    # df = pd.DataFrame(datalist)
+    # df.to_csv('training_PandS_updeANMO.csv', index=False)
 
     # # train a model with EQTransformer
     # model_name="updeANMO_shift"
@@ -695,3 +744,13 @@ if __name__ == '__main__':
     # picker = Picker(default_p_calctime=450)
     # picker.load_dataset('data_fetched.pkl', verbose=True)
     # picker.prepare_catalog('./training', './hmsl_preproc', './hmsl_hdfs', 10)
+
+    # # load dataset and prepare prediction data for banpass
+    # picker = Picker(default_p_calctime=450)
+    # picker.load_dataset('data_fetched.pkl', verbose=True)
+    # picker.prepare_catalog('./training_bandpass', './hmsl_bp_preproc', './hmsl_bp_hdfs', 10)
+
+    # load dataset and prepare prediction data for banpass
+    # picker = Picker(default_p_calctime=450)
+    # picker.load_dataset('data_fetched.pkl', verbose=True)
+    picker.prepare_catalog('./training_onlyrot', './hmsl_rot_preproc', './hmsl_rot_hdfs', 10)

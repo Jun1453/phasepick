@@ -11,6 +11,8 @@ venv-3.7*
 downloads_*
 test*
 training
+training_bandpass
+training_onlyrot
 training_old
 rawdata
 resp.dir
@@ -20,6 +22,7 @@ resp.dir
 AlphaPK_*/
 hmsl_*/
 *_pred/
+*_pred_*/
 *backups
 *_old
 
