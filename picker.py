@@ -12,7 +12,7 @@ import pandas as pd
 import random
 import pickle
 # import EQTransformer as eqt
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool, Manager, cpu_count
 from multiprocessing.pool import ThreadPool
 from scipy.fft import rfft, irfft
 from obspy.clients.fdsn import Client
@@ -21,6 +21,7 @@ from obspy import read
 from obspy.taup import TauPyModel
 from obspy.geodetics.base import gps2dist_azimuth, locations2degrees
 from obspy.signal.invsim import simulate_seismometer
+from obspy.clients.fdsn.header import FDSNNoDataException
 
 fn_starttime_full = lambda srctime: srctime - 0.5 * 60 * 60
 fn_endtime_full = lambda srctime: srctime + 2 * 60 * 60
@@ -45,6 +46,8 @@ class Event():
         for station in self.stations:
             if station == target: return station
         return None
+    def appendstation(self, station):
+        self.stations.append(station)
 
 class Station():
     def __init__(self, station, lat, lon, dist, azi):
@@ -168,49 +171,118 @@ class SeismicData():
         starttime = fn_starttime_full(srctime)
         endtime = fn_endtime_full(srctime)
 
-        savedir = f"./rawdata/{srctime}"
+        # savedir = f"./rawdata/{srctime}"
         
-        if (not (os.path.exists(savedir) and skip_existing_events)):
+        # if (not (os.path.exists(savedir) and skip_existing_events)):
 
-            for station in event.stations:
-                ## revise the following line 
-                if not (glob.glob(f"{savedir}/*.{station.labelsta['name']}.LH.obspy") and skip_existing_stations):
-                    try:
-                        inv = self.client.get_stations(station=f"{station.labelsta['name']}", starttime=starttime, endtime=endtime)
-
-                    except:
+        # find stations one by one according to the table
+        if len(event.stations) > 0:
+            savedir = f"./rawdata/{srctime}"
+            if (not (os.path.exists(savedir) and skip_existing_events)):
+                for station in event.stations:
+                    ## revise the following line 
+                    if not (glob.glob(f"{savedir}/*.{station.labelsta['name']}.LH.obspy") and skip_existing_stations):
                         try:
-                            inv = self.client.get_stations(starttime=starttime, endtime=endtime,
-                                    minlatitude=station.labelsta['lat']-0.02, maxlatitude=station.labelsta['lat']+0.02,
-                                    minlongitude=station.labelsta['lon']-0.02, maxlongitude=station.labelsta['lon']+0.02)
+                            inv = self.client.get_stations(station=f"{station.labelsta['name']}", starttime=starttime, endtime=endtime)
+
                         except:
-                            print(srctime, station.labelsta['name'], '... X (station not exists)')
-                            continue
-                    # print(inv.networks[0].code)
+                            try:
+                                inv = self.client.get_stations(starttime=starttime, endtime=endtime, channel="LHZ,LHN,LHE",
+                                        minlatitude=station.labelsta['lat']-0.02, maxlatitude=station.labelsta['lat']+0.02,
+                                        minlongitude=station.labelsta['lon']-0.02, maxlongitude=station.labelsta['lon']+0.02)
+                            except:
+                                print(srctime, station.labelsta['name'], '... X (station not exists)')
+                                continue
+                        # print(inv.networks[0].code)
+                        for network in inv.networks:
+                            if network.code == "SY":
+                                inv.networks.remove(network)
+                            for station in network.stations:
+                                if len(station.channels) != 3:
+                                    network.stations.remove(station)
+                            if len(network.stations) == 0:
+                                inv.networks.remove(network)
+                        
+                        if len(inv.networks) > 0 :
+                            try:
+                                if not os.path.exists(savedir): os.makedirs(savedir)
+                                st_raw = self.client.get_waveforms(inv.networks[0].code, inv.networks[0].stations[0].code, "*", "LHZ,LHN,LHE", starttime, endtime, attach_response=True,
+                                    filename=f"{savedir}/{inv.networks[0].code}.{inv.networks[0].stations[0].code}.LH.obspy")
+                                print(srctime, f"{station.labelsta['name']} ({inv.networks[0].code}-{inv.networks[0].stations[0].code})")
+                                station.labelnet['code'] = inv.networks[0].code
+                                station.isdataexist = True
+
+                                # sleep or IRIS may cut down your connection
+                                time.sleep(1)
+                            except:
+                                print(srctime, f"{station.labelsta['name']} ({inv.networks[0].code}-{inv.networks[0].stations[0].code})", '... X (data not exists)')
+            return event
+
+            # no stations are given, search for every availible
+        else:
+            savedir = f"./rawdata_catalog/{srctime}"
+            if (not (os.path.exists(savedir) and skip_existing_events)):
+                try:
+                    inv = self.client.get_stations(starttime=starttime, endtime=endtime, channel="LHZ,LHN,LHE")
+                except:
+                    print(srctime, '... X (no available station exists)')
+
+                for network in inv.networks:
+                    if network.code == "SY":
+                        inv.networks.remove(network)
+                    for station in network.stations:
+                        if len(station.channels) != 3:
+                            network.stations.remove(station)
+                    if len(network.stations) == 0:
+                        inv.networks.remove(network)
+                
+                if len(inv.networks) > 0 :
+                    if not os.path.exists(savedir): os.makedirs(savedir)
                     for network in inv.networks:
-                        if network.code == "SY":
-                            inv.networks.remove(network)
-                    
-                    if len(inv.networks) > 0 :
-                        try:
-                            if not os.path.exists(savedir): os.makedirs(savedir)
-                            st_raw = self.client.get_waveforms(inv.networks[0].code, inv.networks[0].stations[0].code, "*", "LH*", starttime, endtime, attach_response=True,
-                                filename=f"{savedir}/{inv.networks[0].code}.{inv.networks[0].stations[0].code}.LH.obspy")
-                            print(srctime, f"{station.labelsta['name']} ({inv.networks[0].code}-{inv.networks[0].stations[0].code})")
-                            station.labelnet['code'] = inv.networks[0].code
-                            station.isdataexist = True
-                            self.numdownloaded += 1
+                        for station in network.stations:
+                            try:
+                                st_raw = self.client.get_waveforms(network.code, station.code, "*", "LHZ,LHN,LHE", starttime, endtime, attach_response=True,
+                                    filename=f"{savedir}/{network.code}.{station.code}.LH.obspy")
+                                fetched = Station(station.code, station.latitude, station.longitude,
+                                                    dist=locations2degrees(lat1=station.latitude, long1=station.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
+                                                    azi=gps2dist_azimuth(lat1=station.latitude, lon1=station.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2])
+                                fetched.labelnet['code'] = network.code
+                                fetched.isdataexist = True
+                                event.stations.append(fetched)
+                                print(srctime, f"Fetched ({network.code}-{station.code})")
 
-                            # sleep or IRIS may cut down your connection
-                            time.sleep(1)
-                        except:
-                            print(srctime, f"{station.labelsta['name']} ({inv.networks[0].code}-{inv.networks[0].stations[0].code})", '... X (data not exists)')
+                                # sleep or IRIS may cut down your connection
+                                time.sleep(1)
+                            except FDSNNoDataException as e:
+                                print(srctime, f"{station.code} ({network.code}-{station.code})", '... X (data not exists)')
+                            except: 
+                                print(srctime, f"{station.code} ({network.code}-{station.code})", '... X (unknown issue)')
+            else:
+                fetched_files = glob.glob(f"{savedir}/*.{station.labelsta['name']}.LH.obspy")
+                for fetched_file in fetched_files:
+                    try:
+                        stream = read(fetched_file)
+                        inv = self.client.get_stations(station=stream[0].stats.station, starttime=stream[0].stats.starttime, endtime=stream[0].stats.endtime, channel="LHZ,LHN,LHE")
+                        fetched = Station(inv[0][0].code, inv[0][0].latitude, inv[0][0].longitude,
+                                          dist=locations2degrees(lat1=inv[0][0].latitude, long1=inv[0][0].longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
+                                          azi=gps2dist_azimuth(lat1=inv[0][0].latitude, lon1=inv[0][0].longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2])
+                        fetched.labelnet['code'] = inv[0].code
+                        fetched.isdataexist = True
+                        event.stations.append(fetched)
+                        print(srctime, f"Loaded fetched ({network.code}-{station.code})")
+                    except: 
+                            print(srctime, f"{station.code} ({network.code}-{station.code})", '... X (failed loading)')
+
+            return event
+
 
     def fetch(self):
         self.numdownloaded = 0
         p = Pool(10) # set parallel fetch
-        p.map(self._fetch_par, self.events)
-        print(f"{self.numdownloaded} seismograms are downloaded.")
+        self.events = p.map(self._fetch_par, self.events)
+        for ev in self.events:
+            self.numdownloaded+=len(ev.stations)
+        print(f"{self.numdownloaded} seismograms are processed.")
 
     def link_downloaded(self, israwdata=True):
         count = 0
@@ -710,12 +782,12 @@ if __name__ == '__main__':
     # df.to_csv('training_PandS_upbpANMO_shift.csv', index=False)
     
     # load fetched dataset, remove instrument response, bandpass frequency, and create training dataset
-    picker = Picker()
-    picker.load_dataset('data_fetched.pkl', verbose=True)
-    datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess='onlyrot', output='./uprotANMO_shift.hdf5')
-    random.shuffle(datalist)
-    df = pd.DataFrame(datalist)
-    df.to_csv('training_PandS_uprotANMO_shift.csv', index=False)
+    # picker = Picker()
+    # picker.load_dataset('data_fetched.pkl', verbose=True)
+    # datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess='onlyrot', output='./uprotANMO_shift.hdf5')
+    # random.shuffle(datalist)
+    # df = pd.DataFrame(datalist)
+    # df.to_csv('training_PandS_uprotANMO_shift.csv', index=False)
     
     # # load fetched dataset, remove instrument response, and create training dataset
     # picker = Picker()
@@ -753,4 +825,19 @@ if __name__ == '__main__':
     # load dataset and prepare prediction data for banpass
     # picker = Picker(default_p_calctime=450)
     # picker.load_dataset('data_fetched.pkl', verbose=True)
-    picker.prepare_catalog('./training_onlyrot', './hmsl_rot_preproc', './hmsl_rot_hdfs', 10)
+    # picker.prepare_catalog('./training_onlyrot', './hmsl_rot_preproc', './hmsl_rot_hdfs', 10)
+
+    # create dataset from scretch, fetch seismic data, and dump
+    picker = Picker()
+    picker.create_dataset([])
+    catalog = np.load('/Users/jun/phasepick/gcmt.npy',allow_pickle=True)
+    picker.data.events = catalog
+    picker.data.fetch()
+    picker.dump_dataset("data_fetched_catalog.pkl")
+
+    # picker = Picker()
+    # picker.load_dataset('data_fetched_catalog.pkl', verbose=False)
+    # summ=0
+    # for ev in picker.data.events:
+    #     summ+=len(ev.stations)
+    # print(summ)
