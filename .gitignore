@@ -25,6 +25,10 @@ hmsl_*/
 *_pred_*/
 *backups
 *_old
+rawdata_catalog
+rawdata_catalog2
+resp_catalog
+training_catalog2
 
 # table
 training*.csv
@@ -36,3 +40,4 @@ updeANMO*.csv
 
 # log
 message.log
+*.log
