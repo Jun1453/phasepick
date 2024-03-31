@@ -929,7 +929,7 @@ class SeismicData():
         return datalist
 
 
-    def __init__(self, picker, client: Client, paths: list, autofetch=False, isTable=True, station_list_filename="/Users/jun/phasepick/stalist.pkl", resp_list_filename="/Users/jun/phasepick/resp_catalog/resplist.pkl"):
+    def __init__(self, picker, client: Client, paths: list, autofetch=False, isTable=True, station_list_filename="/Users/jun/phasepick/stalist_2.pkl", resp_list_filename="/Users/jun/phasepick/resp_catalog/resplist_2.pkl"):
         self.picker = picker
         self.client = client
         self.numdownloaded = 0
@@ -1321,20 +1321,20 @@ if __name__ == '__main__':
     # picker.load_dataset('data_fetched.pkl', verbose=True)
     # picker.prepare_catalog('./training_onlyrot', './hmsl_rot_preproc', './hmsl_rot_hdfs', 10)
 
-    # # create dataset from scretch, fetch seismic data, and dump
-    # picker = Picker()
-    # picker.create_dataset([])
-    # catalog = np.load('/Users/jun/phasepick/gcmt.npy',allow_pickle=True)
-    # picker.data.events = catalog
-    # picker.data.fetch()
-    # picker.dump_dataset("./rawdata_catalog2/data_fetched_catalog.pkl")
+    # create dataset from scretch, fetch seismic data, and dump
+    picker = Picker()
+    picker.create_dataset([])
+    catalog = np.load('/Users/jun/phasepick/gcmt.npy',allow_pickle=True)
+    picker.data.events = catalog
+    picker.data.fetch()
+    picker.dump_dataset("./rawdata_catalog2/data_fetched_catalog_2010_2.pkl")
 
     # load fetched dataset, remove instrument response, and create training dataset
-    picker = Picker()
-    picker.load_dataset('./rawdata_catalog2/data_fetched_catalog_2010.pkl', verbose=True)
+    # picker = Picker()
+    # picker.load_dataset('./rawdata_catalog2/data_fetched_catalog_2010.pkl', verbose=True)
     datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog2/catalog_2010_preproc_2.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog2')
     df = pd.DataFrame(datalist)
-    df.to_csv('catalog_2010_preproc.csv', index=False)
+    df.to_csv('catalog_2010_preproc_2.csv', index=False)
     # datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess=False, shift=False, output='./updeANMO.hdf5', obsfile="compiled", year_option=2010, dir_ext='_catalog2')
     # random.shuffle(datalist)
     # df = pd.DataFrame(datalist)
