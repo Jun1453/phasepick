@@ -565,7 +565,7 @@ class SeismicData():
                         # if len(station_responses[0].sensitivity)*len(station_responses[1].sensitivity)*len(station_responses[2].sensitivity) == 0: raise ValueError(f"response is missing for {network_code}.{trace.labelsta['name']}")
 
                         # using obspy response object
-                        station_responses = [self.resplist[f'{network_code}.{trace.labelsta['name']}.LH'].find_responses(event.srctime).select(channel=channel,time=event.srctime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
+                        station_responses = [self.resplist[f'{network_code}.{trace.labelsta["name"]}.LH'].find_responses(event.srctime).select(channel=channel,time=event.srctime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
                     except ValueError as e:
                         print(f"Value error for {obsfile_name}: {e}"); return
                     except FileNotFoundError as e:
