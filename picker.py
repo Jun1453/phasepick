@@ -167,7 +167,7 @@ class Instrument():
             self.resp4record[datetime_str] = self.find_responses(datetime_str)
 
     def __repr__(self):
-        return f"{self.network_code}.{self.station_code}: "+', '.join([f"{sta.start_time.year}.{sta.start_time.julday}.{sta.start_time.hour}.{sta.end_time.year}.{sta.end_time.julday}.{sta.end_time.hour}" for sta in self.resp_inventory])
+        return f"{self.network_code}.{self.station_code}: "+', '.join([f"{sta.start_date.year}.{sta.start_date.julday:03}.{sta.start_date.hour:02}.{(sta.end_date.year if sta.end_date else 3001)}.{(sta.end_date.julday if sta.end_date else 1):03}.{(sta.end_date.hour if sta.end_date else 0):02}" for sta in self.resp_inventory])
         
 
 class InstrumentResponse():
@@ -470,6 +470,29 @@ class SeismicData():
                     count += 1
         print(f"{count} files are linked to event list.")
 
+    def deconv_resp(self, rawdata, station_resps, reference_resps):
+        if not self.working_freqencies: self.working_freqencies = np.linspace(1e-10, 0.5, 3000)
+        proceed = rawdata.copy()
+
+        # loop for all (three) components
+        for i in range(len(station_resps)):
+            # fast-fourier-transform the trace
+            fdomain_data = rfft(rawdata[i].data)
+
+            # get response array from frequencies
+            sta_resp_interp = station_resps[i].get_evalresp_response_for_frequencies(self.working_freqencies)
+            ref_resp_interp = reference_resps[i].get_evalresp_response_for_frequencies(self.working_freqencies)
+
+            # deconvolve and convolve the trace
+            fdomain_data = fdomain_data / sta_resp_interp * ref_resp_interp
+            fdomain_data[0] = complex(0, 0)
+
+            # inverse fast-fourier-transform the trace
+            deconvolved_data = irfft(fdomain_data)
+            proceed[i].data = deconvolved_data / max(deconvolved_data)
+
+        return proceed
+
     def deconvolve(self, rawdata, station_components, reference_components):
         proceed = rawdata.copy()
 
@@ -536,9 +559,13 @@ class SeismicData():
                 # get instrument response for waveform station
                 if preprocess:
                     try:
-                        station_responses = [InstrumentResponse(network=network_code, station=trace.labelsta['name'], component=component, timestamp=event.srctime) for component in ['LHE', 'LHN', 'LHZ']]
-                        # break if any response is missed
-                        if len(station_responses[0].sensitivity)*len(station_responses[1].sensitivity)*len(station_responses[2].sensitivity) == 0: raise ValueError(f"response is missing for {network_code}.{trace.labelsta['name']}")
+                        # # instrument response without obspy
+                        # station_responses = [InstrumentResponse(network=network_code, station=trace.labelsta['name'], component=component, timestamp=event.srctime) for component in ['LHE', 'LHN', 'LHZ']]
+                        # # break if any response is missed
+                        # if len(station_responses[0].sensitivity)*len(station_responses[1].sensitivity)*len(station_responses[2].sensitivity) == 0: raise ValueError(f"response is missing for {network_code}.{trace.labelsta['name']}")
+
+                        # using obspy response object
+                        station_responses = [self.resplist[f'{network_code}.{trace.labelsta['name']}.LH'].find_responses(event.srctime).select(channel=channel,time=event.srctime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
                     except ValueError as e:
                         print(f"Value error for {obsfile_name}: {e}"); return
                     except FileNotFoundError as e:
@@ -594,8 +621,12 @@ class SeismicData():
                         # stream.filter('bandpass', freqmin=0.03, freqmax=0.05, corners=2, zerophase=True)
 
                     elif preprocess:
-                        # deconvolve and convolve instrument response
-                        stream = self.deconvolve(rawdata=stream, station_components=station_responses, reference_components=reference_responses)
+                        # # deconvolve and convolve instrument response without obspy
+                        # stream = self.deconvolve(rawdata=stream, station_components=station_responses, reference_components=reference_responses)
+                        # deconvolve and convolve instrument response using obspy
+                        stream = self.deconv_resp(rawdata=stream,
+                                                  station_resps=[resplist['SR.GRFO.LH'].find_responses(obspy.UTCDateTime("19830110")).select(channel=channel,time=obspy.UTCDateTime("19830110"))[0].response for channel in ["LHE", "LHN", "LHZ"]],
+                                                  reference_resps=reference_responses)
                         
                         # calculate azimuth angle
                         azimuth = gps2dist_azimuth(lat1=trace.labelsta['lat'], lon1=trace.labelsta['lon'], lat2=event.srcloc[0], lon2=event.srcloc[1])[2] if rotate is True else 180
@@ -774,7 +805,7 @@ class SeismicData():
                 with ThreadPool(cpu_count()) as p:
                     self.resplist = dict(p.starmap(self._prepare_resplist_par, zip(stalist.items(), repeat(respdir))))
                 with open(self.resp_list_filename, 'wb') as outfile:
-                    stalist = pickle.dump(self.resplist, outfile)
+                    pickle.dump(self.resplist, outfile)
         else:
             with open(self.resp_list_filename, 'rb') as file:
                 self.resplist = pickle.load(file)
@@ -782,11 +813,14 @@ class SeismicData():
     def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5', overwrite_hdf=True, obsfile='separate', year_option=None, dir_ext='', cpu_number=36, respdir='/Users/jun/phasepick/resp_catalog'):
         if not shift: shift = (0,0)
         
-        # get instrument response for reference station
-        reference_responses = [InstrumentResponse(network='SR', station='GRFO', component=component, timestamp=UTCDateTime(1983, 1, 1)) for component in ['LHE', 'LHN', 'LHZ']]
-
         # load station list and build inventory for station response
-        if preprocess: self.prepare_resplist(respdir)
+        if preprocess:
+            if not self.resplist: self.prepare_resplist(respdir)
+
+            # get instrument response for reference station
+            # reference_responses = [InstrumentResponse(network='SR', station='GRFO', component=component, timestamp=UTCDateTime(1983, 1, 1)) for component in ['LHE', 'LHN', 'LHZ']]
+            reference_datetime = UTCDateTime(1983, 1, 1)
+            reference_responses = [self.resplist['SR.GRFO.LH'].find_responses(reference_datetime).select(channel=channel,time=reference_datetime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
 
         # set directory
         loaddir = f'rawdata{dir_ext}' if preprocess else 'training'
@@ -1260,22 +1294,22 @@ if __name__ == '__main__':
     # picker.data.fetch()
     # picker.dump_dataset("./rawdata_catalog2/data_fetched_catalog.pkl")
 
-    # # load fetched dataset, remove instrument response, and create training dataset
-    # picker = Picker()
-    # picker.load_dataset('./rawdata_catalog2/data_fetched_catalog_2010.pkl', verbose=True)
-    # datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./catalog_2010_preproc.hdf5', overwrite_hdf=False, obsfile="compiled", year_option=2010, dir_ext='_catalog2')
-    # df = pd.DataFrame(datalist)
-    # df.to_csv('catalog_2010_preproc.csv', index=False)
-    # datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess=False, shift=False, output='./updeANMO.hdf5', obsfile="compiled", year_option=2010, dir_ext='_catalog2')
-    # random.shuffle(datalist)
-    # df = pd.DataFrame(datalist)
-    # df.to_csv('training_PandS_updeANMO.csv', index=False)
-
-    # load dataset and prepare prediction data
-    picker = Picker(default_p_calctime=450)
+    # load fetched dataset, remove instrument response, and create training dataset
+    picker = Picker()
     picker.load_dataset('./rawdata_catalog2/data_fetched_catalog_2010.pkl', verbose=True)
-    # picker.prepare_catalog('./training_catalog2', '/Volumes/seismic/catalog_preproc', '/Volumes/seismic/catalog_hdfs')
-    picker.data.prepare_resplist()
+    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog2/catalog_2010_preproc.hdf5', overwrite_hdf=False, obsfile="compiled", year_option=2010, dir_ext='_catalog2')
+    df = pd.DataFrame(datalist)
+    df.to_csv('catalog_2010_preproc.csv', index=False)
+    datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess=False, shift=False, output='./updeANMO.hdf5', obsfile="compiled", year_option=2010, dir_ext='_catalog2')
+    random.shuffle(datalist)
+    df = pd.DataFrame(datalist)
+    df.to_csv('training_PandS_updeANMO.csv', index=False)
+
+    # # load dataset and prepare prediction data
+    # picker = Picker(default_p_calctime=450)
+    # picker.load_dataset('./rawdata_catalog2/data_fetched_catalog_2010.pkl', verbose=True)
+    picker.prepare_catalog('./training_catalog2', '/Volumes/seismic/catalog_preproc', '/Volumes/seismic/catalog_hdfs')
+    # picker.data.prepare_resplist()
 
     # picker = Picker()
     # picker.load_dataset('data_fetched_catalog.pkl', verbose=False)
