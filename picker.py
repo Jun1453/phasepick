@@ -625,7 +625,7 @@ class SeismicData():
                         # stream = self.deconvolve(rawdata=stream, station_components=station_responses, reference_components=reference_responses)
                         # deconvolve and convolve instrument response using obspy
                         stream = self.deconv_resp(rawdata=stream,
-                                                  station_resps=[resplist['SR.GRFO.LH'].find_responses(obspy.UTCDateTime("19830110")).select(channel=channel,time=obspy.UTCDateTime("19830110"))[0].response for channel in ["LHE", "LHN", "LHZ"]],
+                                                  station_resps=[self.resplist['SR.GRFO.LH'].find_responses(UTCDateTime("19830110")).select(channel=channel,time=UTCDateTime("19830110"))[0].response for channel in ["LHE", "LHN", "LHZ"]],
                                                   reference_resps=reference_responses)
                         
                         # calculate azimuth angle
@@ -1301,10 +1301,10 @@ if __name__ == '__main__':
     datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog2/catalog_2010_preproc.hdf5', overwrite_hdf=False, obsfile="compiled", year_option=2010, dir_ext='_catalog2')
     df = pd.DataFrame(datalist)
     df.to_csv('catalog_2010_preproc.csv', index=False)
-    datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess=False, shift=False, output='./updeANMO.hdf5', obsfile="compiled", year_option=2010, dir_ext='_catalog2')
-    random.shuffle(datalist)
-    df = pd.DataFrame(datalist)
-    df.to_csv('training_PandS_updeANMO.csv', index=False)
+    # datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess=False, shift=False, output='./updeANMO.hdf5', obsfile="compiled", year_option=2010, dir_ext='_catalog2')
+    # random.shuffle(datalist)
+    # df = pd.DataFrame(datalist)
+    # df.to_csv('training_PandS_updeANMO.csv', index=False)
 
     # # load dataset and prepare prediction data
     # picker = Picker(default_p_calctime=450)
