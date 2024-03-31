@@ -1298,7 +1298,7 @@ if __name__ == '__main__':
     # load fetched dataset, remove instrument response, and create training dataset
     picker = Picker()
     picker.load_dataset('./rawdata_catalog2/data_fetched_catalog_2010.pkl', verbose=True)
-    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog2/catalog_2010_preproc.hdf5', overwrite_hdf=False, obsfile="compiled", year_option=2010, dir_ext='_catalog2')
+    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog2/catalog_2010_preproc_2.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog2')
     df = pd.DataFrame(datalist)
     df.to_csv('catalog_2010_preproc.csv', index=False)
     # datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess=False, shift=False, output='./updeANMO.hdf5', obsfile="compiled", year_option=2010, dir_ext='_catalog2')
@@ -1309,7 +1309,7 @@ if __name__ == '__main__':
     # # load dataset and prepare prediction data
     # picker = Picker(default_p_calctime=450)
     # picker.load_dataset('./rawdata_catalog2/data_fetched_catalog_2010.pkl', verbose=True)
-    picker.prepare_catalog('./training_catalog2', '/Volumes/seismic/catalog_preproc', '/Volumes/seismic/catalog_hdfs')
+    picker.prepare_catalog('./training_catalog2', '/Volumes/seismic/catalog_preproc2', '/Volumes/seismic/catalog_hdfs2')
     # picker.data.prepare_resplist()
 
     # picker = Picker()
