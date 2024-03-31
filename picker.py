@@ -902,6 +902,7 @@ class SeismicData():
         self.numdownloaded = 0
         self.station_list_filename = station_list_filename
         self.resp_list_filename = resp_list_filename
+        self.resplist = None
 
         # create event list from paths
         self.events = []
