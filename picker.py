@@ -268,7 +268,7 @@ class SeismicData():
                     matchstation.records.append(nlrecord)
         return numNewEvents
     
-    def _fetch_par(self, event, skip_existing_events=True, skip_existing_stations=True):
+    def _fetch_par(self, event, skip_existing_events=True, skip_existing_stations=True, respdir='/Users/jun/phasepick/resp_catalog'):
         srctime = event.srctime
         srctime.precision = 3
         starttime = fn_starttime_full(srctime)
@@ -327,64 +327,84 @@ class SeismicData():
             filename = f"./rawdata_catalog2/{srctime}.LH.obspy"
             # fetch data if no file exist
             if (not (os.path.exists(filename) and skip_existing_events)):
-                return event
-                try:
-                    inv = self.client.get_stations(starttime=starttime, endtime=endtime, channel="LHZ,LHN,LHE")
-                except:
-                    print(srctime, '... X (no available station exists)')
-                    return
+                # # return event
+                # try:
+                #     inv = self.client.get_stations(starttime=starttime, endtime=endtime, channel="LHZ,LHN,LHE")
+                # except:
+                #     print(srctime, '... X (no available station exists)')
+                #     return
 
-                for network in inv.networks:
-                    if network.code == "SY":
-                        inv.networks.remove(network)
-                    for station in network.stations:
-                        if len(station.channels) != 3:
-                            network.stations.remove(station)
-                    if len(network.stations) == 0:
-                        inv.networks.remove(network)
+                # for network in inv.networks:
+                #     if network.code == "SY":
+                #         inv.networks.remove(network)
+                #     for station in network.stations:
+                #         if len(station.channels) != 3:
+                #             network.stations.remove(station)
+                #     if len(network.stations) == 0:
+                #         inv.networks.remove(network)
                 
-                if len(inv.networks) > 0 :
-                    try:
-                        self.client.get_waveforms("*", "*", "*", "LHZ,LHN,LHE", starttime, endtime, attach_response=True, filename=filename)
-                    except:
-                        print(srctime,  '... X (error in retrieving traces)')
-                        return
+                # if len(inv.networks) > 0 :
+                #     try:
+                #         self.client.get_waveforms("*", "*", "*", "LHZ,LHN,LHE", starttime, endtime, attach_response=True, filename=filename)
+                #     except:
+                #         print(srctime,  '... X (error in retrieving traces)')
+                #         return
+                        
+                fetched_stream = self.client.get_waveforms("*", "*", "*", "LH?", starttime, endtime, attach_response=True)
+                for trace in fetched_stream.select(network="SY"): fetched_stream.remove(trace)
+                if len(fetched_stream)>0:
+                    fetched_stream.write(filename)
                     
                     station_list = []
-                    fetched_stream = read(filename)
+                    # fetched_stream = read(filename)
                     for trace in fetched_stream:
                         try:
+                            station = trace.meta.station
+                            # when processing for a new station
                             if not trace.stats.station in station_list:
-                                traces_selected = fetched_stream.select(station=trace.stats.station)
-                                network = inv.select(station=trace.stats.station)[0]
-                                station = network[0]
+                                # traces_selected = fetched_stream.select(station=trace.stats.station)
+                                # network = inv.select(station=trace.stats.station)[0]
+                                # station = network[0]
+                                network = trace.meta.network
 
-                                # ignore trace if the only component
-                                if len(traces_selected) < 3:
-                                    continue
-                                # record location if all traces agree
-                                elif len(traces_selected) == 3:
-                                    if (traces_selected[0].stats.location==traces_selected[1].stats.location) and (traces_selected[1].stats.location==traces_selected[2].stats.location):
-                                        location = traces_selected[0].stats.location
-                                    else: continue
-                                elif len(traces_selected) > 3:
-                                    # reselect for location '' if more than 3 components
-                                    traces_selected = fetched_stream.select(station=trace.stats.station, location='')
-                                    if len(traces_selected) == 3: location = traces_selected[0].stats.location
-                                    # reselect for location '00' if more than 3 components
-                                    else:
-                                        traces_selected = fetched_stream.select(station=trace.stats.station, location='00')
-                                        if len(traces_selected) == 3: location = traces_selected[0].stats.location
-                                        else: continue
+                                # # ignore trace if the only component
+                                # if len(traces_selected) < 3:
+                                #     continue
+                                # # record location if all traces agree
+                                # elif len(traces_selected) == 3:
+                                #     if (traces_selected[0].stats.location==traces_selected[1].stats.location) and (traces_selected[1].stats.location==traces_selected[2].stats.location):
+                                #         location = traces_selected[0].stats.location
+                                #     else: continue
+                                # elif len(traces_selected) > 3:
+                                #     # reselect for location '' if more than 3 components
+                                #     traces_selected = fetched_stream.select(station=trace.stats.station, location='')
+                                #     if len(traces_selected) == 3: location = traces_selected[0].stats.location
+                                #     # reselect for location '00' if more than 3 components
+                                #     else:
+                                #         traces_selected = fetched_stream.select(station=trace.stats.station, location='00')
+                                #         if len(traces_selected) == 3: location = traces_selected[0].stats.location
+                                #         else: continue
+                                location_priority = ['', '00', '10', '20', None]
+                                for location_matching in location_priority:
+                                    traces_matching = fetched_stream.select(station=station, location=location_matching)
+                                    if len(traces_matching) == 3: break
+                                    if len(traces_matching) == 5:
+                                        traces_matching.remove(traces_matching.select(channel='LH1'))
+                                        traces_matching.remove(traces_matching.select(channel='LH2'))
+                                        break
                                 
-                                fetched = Station(station.code, station.latitude, station.longitude,
-                                                    dist=locations2degrees(lat1=station.latitude, long1=station.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
-                                                    azi=gps2dist_azimuth(lat1=station.latitude, lon1=station.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2],
-                                                    loc=location)
-                                fetched.labelnet['code'] = network.code
-                                fetched.isdataexist = True
-                                event.stations.append(fetched)
-                                station_list.append(trace.stats.station)
+                                if not location_matching is None:
+                                    if not self.resplist: self.prepare_resplist(respdir)
+                                    stations_matching = self.resplist[f'{network}.{station}.LH'].find_responses(UTCDateTime(srctime))
+                                    if not stations_matching: stations_matching = self.client.get_stations(station=station, starttime=starttime, endtime=endtime, channel="LH?")[0][0]
+                                    fetched = Station(stations_matching.code, stations_matching.latitude, stations_matching.longitude,
+                                                        dist=locations2degrees(lat1=stations_matching.latitude, long1=stations_matching.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
+                                                        azi=gps2dist_azimuth(lat1=stations_matching.latitude, lon1=stations_matching.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2],
+                                                        loc=location_priority)
+                                    fetched.labelnet['code'] = network
+                                    fetched.isdataexist = True
+                                    event.stations.append(fetched)
+                                    station_list.append(trace.stats.station)
                                 
                         except:
                             print(srctime, trace.stats.station, '... X (error in reading fetched traces)')
@@ -393,7 +413,7 @@ class SeismicData():
                     print(srctime, f"Fetched for {len(event.stations)} stations")
 
                     # sleep or IRIS may cut down your connection
-                    time.sleep(1)
+                    time.sleep(0.2)
                         
                     # if not os.path.exists(savedir): os.makedirs(savedir)
                     # for network in inv.networks:
@@ -425,12 +445,21 @@ class SeismicData():
                 station_list = []
                 for trace in loaded_stream:
                     if not trace.stats.station in station_list:
+                        station = trace.meta.station
+                        network = trace.meta.network
+                        if not self.resplist: self.prepare_resplist(respdir)
                         try:
-                            inv = self.client.get_stations(station=trace.stats.station, starttime=trace.stats.starttime, endtime=trace.stats.endtime, level="station")
-                            fetched = Station(inv[0][0].code, inv[0][0].latitude, inv[0][0].longitude,
-                                            dist=locations2degrees(lat1=inv[0][0].latitude, long1=inv[0][0].longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
-                                            azi=gps2dist_azimuth(lat1=inv[0][0].latitude, lon1=inv[0][0].longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2])
-                            fetched.labelnet['code'] = inv[0].code
+                            # inv = self.client.get_stations(station=trace.stats.station, starttime=trace.stats.starttime, endtime=trace.stats.endtime, level="station")
+                            # fetched = Station(inv[0][0].code, inv[0][0].latitude, inv[0][0].longitude,
+                            #                 dist=locations2degrees(lat1=inv[0][0].latitude, long1=inv[0][0].longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
+                            #                 azi=gps2dist_azimuth(lat1=inv[0][0].latitude, lon1=inv[0][0].longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2])
+                            stations_matching = self.resplist[f'{network}.{station}.LH'].find_responses(UTCDateTime(srctime))
+                            if not stations_matching: stations_matching = self.client.get_stations(station=station, starttime=starttime, endtime=endtime, channel="LH?")[0][0]
+                            fetched = Station(stations_matching.code, stations_matching.latitude, stations_matching.longitude,
+                                                dist=locations2degrees(lat1=stations_matching.latitude, long1=stations_matching.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
+                                                azi=gps2dist_azimuth(lat1=stations_matching.latitude, lon1=stations_matching.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2],
+                                                loc=location_priority)
+                            fetched.labelnet['code'] = network
                             fetched.isdataexist = True
                             event.stations.append(fetched)
                         except:
@@ -557,32 +586,36 @@ class SeismicData():
                 network_code = obsfile_name.split('/')[-1].split('.')[0]
 
                 # get instrument response for waveform station
-                if preprocess:
-                    try:
-                        # # instrument response without obspy
-                        # station_responses = [InstrumentResponse(network=network_code, station=trace.labelsta['name'], component=component, timestamp=event.srctime) for component in ['LHE', 'LHN', 'LHZ']]
-                        # # break if any response is missed
-                        # if len(station_responses[0].sensitivity)*len(station_responses[1].sensitivity)*len(station_responses[2].sensitivity) == 0: raise ValueError(f"response is missing for {network_code}.{trace.labelsta['name']}")
+                # if preprocess:
+                #     try:
+                #         # # instrument response without obspy
+                #         # station_responses = [InstrumentResponse(network=network_code, station=trace.labelsta['name'], component=component, timestamp=event.srctime) for component in ['LHE', 'LHN', 'LHZ']]
+                #         # # break if any response is missed
+                #         # if len(station_responses[0].sensitivity)*len(station_responses[1].sensitivity)*len(station_responses[2].sensitivity) == 0: raise ValueError(f"response is missing for {network_code}.{trace.labelsta['name']}")
 
-                        # using obspy response object
-                        station_responses = [self.resplist[f'{network_code}.{trace.labelsta["name"]}.LH'].find_responses(event.srctime).select(channel=channel,time=event.srctime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
-                    except ValueError as e:
-                        print(f"Value error for {obsfile_name}: {e}"); return
-                    except FileNotFoundError as e:
-                        print(f"File-not-found error for {obsfile_name}: {e}"); return
+                #         # using obspy response object
+                #         station_responses = [self.resplist[f'{network_code}.{trace.labelsta["name"]}.LH'].find_responses(event.srctime).select(channel=channel,time=event.srctime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
+                #     except ValueError as e:
+                #         print(f"Value error for {obsfile_name}: {e}"); return
+                #     except FileNotFoundError as e:
+                #         print(f"File-not-found error for {obsfile_name}: {e}"); return
             else:
                 # get instrument response for waveform station
                 network_code = trace.labelnet['code']
                 obsfile_name = obsfilenames[0]
-                if preprocess:
-                    try:
-                        station_responses = [InstrumentResponse(network=network_code, station=trace.labelsta['name'], component=component, timestamp=event.srctime) for component in ['LHE', 'LHN', 'LHZ']]
-                        # break if any response is missed
-                        if len(station_responses[0].sensitivity)*len(station_responses[1].sensitivity)*len(station_responses[2].sensitivity) == 0: raise ValueError(f"response is missing for {network_code}.{trace.labelsta['name']}")       
-                    except ValueError as e:
-                        print(f"Value error for {obsfile_name}: {e}"); return
-                    except FileNotFoundError as e:
-                        print(f"File-not-found error for {obsfile_name}: {e}"); return
+                # if preprocess:
+                #     try:
+                #         # # instrument response without obspy
+                #         # station_responses = [InstrumentResponse(network=network_code, station=trace.labelsta['name'], component=component, timestamp=event.srctime) for component in ['LHE', 'LHN', 'LHZ']]
+                #         # # break if any response is missed
+                #         # if len(station_responses[0].sensitivity)*len(station_responses[1].sensitivity)*len(station_responses[2].sensitivity) == 0: raise ValueError(f"response is missing for {network_code}.{trace.labelsta['name']}")       
+                        
+                #         # using obspy response object
+                #         station_responses = [self.resplist[f'{network_code}.{trace.labelsta["name"]}.LH'].find_responses(event.srctime).select(channel=channel,time=event.srctime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
+                #     except ValueError as e:
+                #         print(f"Value error for {obsfile_name}: {e}"); return
+                #     except FileNotFoundError as e:
+                #         print(f"File-not-found error for {obsfile_name}: {e}"); return
                     
                 stream = read(obsfile_name)
                 stream = stream.select(station=trace.labelsta['name'], location=trace.labelsta['loc'])
@@ -903,6 +936,7 @@ class SeismicData():
         self.station_list_filename = station_list_filename
         self.resp_list_filename = resp_list_filename
         self.resplist = None
+        self.working_freqencies = None
 
         # create event list from paths
         self.events = []
