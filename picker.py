@@ -268,7 +268,7 @@ class SeismicData():
                     matchstation.records.append(nlrecord)
         return numNewEvents
     
-    def _fetch_par(self, event, skip_existing_events=True, skip_existing_stations=True, respdir='/Users/jun/phasepick/resp_catalog'):
+    def _fetch_par(self, event, skip_existing_events=False, skip_existing_stations=True, respdir='/Users/jun/phasepick/resp_catalog'):
         srctime = event.srctime
         srctime.precision = 3
         starttime = fn_starttime_full(srctime)
@@ -393,7 +393,9 @@ class SeismicData():
                                         traces_matching.remove(traces_matching.select(channel='LH2'))
                                         break
                                 
-                                if not location_matching is None:
+                                if location_matching is None:
+                                    print(srctime, trace.stats.station, '... X (more or less than 3 LH components)')
+                                else:
                                     if not self.resplist: self.prepare_resplist(respdir)
                                     stations_matching = self.resplist[f'{network}.{station}.LH'].find_responses(UTCDateTime(srctime))
                                     if not stations_matching: stations_matching = self.client.get_stations(station=station, starttime=starttime, endtime=endtime, channel="LH?")[0][0]
@@ -473,14 +475,16 @@ class SeismicData():
 
     def fetch(self, cpu_number=12):
         self.numdownloaded = 0
+        event_count = 0
+        print("start fetching...")
         p = Pool(cpu_number) # set parallel fetch
         # self.events = p.map(self._fetch_par, self.events[:2000])
         self.events = p.map(self._fetch_par, self.events[32020:33872]) #only year 2010
-        print("fetch finished.")
+        print("fetching finished.")
         for ev in self.events:
-            if ev: self.numdownloaded+=len(ev.stations)
+            if ev: self.numdownloaded+=len(ev.stations); event_count+=1
             else: self.events.remove(ev)
-        print(f"{self.numdownloaded} seismograms are processed.")
+        print(f"{len(event_count)} events with {self.numdownloaded} seismograms are processed.")
 
     def link_downloaded(self, israwdata=True):
         count = 0
@@ -929,7 +933,7 @@ class SeismicData():
         return datalist
 
 
-    def __init__(self, picker, client: Client, paths: list, autofetch=False, isTable=True, station_list_filename="/Users/jun/phasepick/stalist_2.pkl", resp_list_filename="/Users/jun/phasepick/resp_catalog/resplist_2.pkl"):
+    def __init__(self, picker, client: Client, paths: list, autofetch=False, isTable=True, station_list_filename="/Users/jun/phasepick/stalist.pkl", resp_list_filename="/Users/jun/phasepick/resp_catalog/resplist_2.pkl"):
         self.picker = picker
         self.client = client
         self.numdownloaded = 0
@@ -949,7 +953,7 @@ class SeismicData():
                 print(f"folder read successfully, {numevent} events added")
 
         # fetch data if autofetch toggled
-        if autofetch: self.fetch(skip_existing_events=False)
+        if autofetch: self.fetch()
     
 
 class Picker():
@@ -1326,25 +1330,26 @@ if __name__ == '__main__':
     picker.create_dataset([])
     catalog = np.load('/Users/jun/phasepick/gcmt.npy',allow_pickle=True)
     picker.data.events = catalog
-    picker.data.fetch()
+    print("catalog loaded.")
+    picker.data.fetch(cpu_number=36)
     picker.dump_dataset("./rawdata_catalog2/data_fetched_catalog_2010_2.pkl")
 
-    # load fetched dataset, remove instrument response, and create training dataset
-    # picker = Picker()
-    # picker.load_dataset('./rawdata_catalog2/data_fetched_catalog_2010.pkl', verbose=True)
-    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog2/catalog_2010_preproc_2.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog2')
-    df = pd.DataFrame(datalist)
-    df.to_csv('catalog_2010_preproc_2.csv', index=False)
-    # datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess=False, shift=False, output='./updeANMO.hdf5', obsfile="compiled", year_option=2010, dir_ext='_catalog2')
-    # random.shuffle(datalist)
+    # # load fetched dataset, remove instrument response, and create training dataset
+    # # picker = Picker()
+    # # picker.load_dataset('./rawdata_catalog2/data_fetched_catalog_2010.pkl', verbose=True)
+    # datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog2/catalog_2010_preproc_2.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog2')
     # df = pd.DataFrame(datalist)
-    # df.to_csv('training_PandS_updeANMO.csv', index=False)
+    # df.to_csv('catalog_2010_preproc_2.csv', index=False)
+    # # datalist = picker.data.get_datalist(resample=resample_rate, rotate=True, preprocess=False, shift=False, output='./updeANMO.hdf5', obsfile="compiled", year_option=2010, dir_ext='_catalog2')
+    # # random.shuffle(datalist)
+    # # df = pd.DataFrame(datalist)
+    # # df.to_csv('training_PandS_updeANMO.csv', index=False)
 
-    # # load dataset and prepare prediction data
-    # picker = Picker(default_p_calctime=450)
-    # picker.load_dataset('./rawdata_catalog2/data_fetched_catalog_2010.pkl', verbose=True)
-    picker.prepare_catalog('./training_catalog2', '/Volumes/seismic/catalog_preproc2', '/Volumes/seismic/catalog_hdfs2')
-    # picker.data.prepare_resplist()
+    # # # load dataset and prepare prediction data
+    # # picker = Picker(default_p_calctime=450)
+    # # picker.load_dataset('./rawdata_catalog2/data_fetched_catalog_2010.pkl', verbose=True)
+    # picker.prepare_catalog('./training_catalog2', '/Volumes/seismic/catalog_preproc2', '/Volumes/seismic/catalog_hdfs2')
+    # # picker.data.prepare_resplist()
 
     # picker = Picker()
     # picker.load_dataset('data_fetched_catalog.pkl', verbose=False)
