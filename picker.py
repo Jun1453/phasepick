@@ -15,7 +15,7 @@ import warnings
 # import EQTransformer as eqt
 # from functools import partial
 from itertools import repeat
-from multiprocessing import Pool, Manager, cpu_count
+from multiprocessing import Pool, Manager, cpu_count, get_context
 from multiprocessing.pool import ThreadPool
 from scipy.fft import rfft, irfft
 from obspy.clients.fdsn import Client
@@ -493,7 +493,7 @@ class SeismicData():
         print("load station infomation...")
         if not self.resplist: self.prepare_resplist(respdir); self.respdir = respdir
         print("start fetching...")
-        p = Pool(cpu_number) # set parallel fetch
+        p = get_context('fork').Pool(cpu_number) # set parallel fetch
         # self.events = p.map(self._fetch_par, self.events[:2000])
         self.events = p.map(self._fetch_par, self.events[32020:33872]) #only year 2010
         print("fetching finished.")
