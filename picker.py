@@ -949,7 +949,7 @@ class SeismicData():
         return datalist
 
 
-    def __init__(self, picker, client: Client, paths: list, autofetch=False, isTable=True, station_list_filename="/Users/jun/phasepick/stalist.pkl", resp_list_filename="/Users/jun/phasepick/resp_catalog/resplist_2.pkl"):
+    def __init__(self, picker, client: Client, paths: list, autofetch=False, isTable=True, station_list_filename="/Users/jun/phasepick/stalist.pkl", resp_list_filename="/Users/jun/phasepick/resp_catalog/resplist.pkl"):
         self.picker = picker
         self.client = client
         self.numdownloaded = 0
