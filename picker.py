@@ -77,6 +77,13 @@ class Record():
         self.obstim = obstim
         self.calctim = calctim
 
+def download_inventory(client, savepath, **kwargs):
+    inv = client.get_stations(level='RESP', **kwargs)
+    startdate = inv[0][0].start_date
+    enddate = inv[0][0].end_date or UTCDateTime("30010101")
+    inv.write(f"{savepath}.{startdate.year}.{startdate.julday:03}.{startdate.hour:02}.{enddate.year}.{enddate.julday:03}.{enddate.hour:02}", format="STATIONXML")
+    return inv
+
 class Instrument():
     # def _get_resp_path(self):
     #     pass
@@ -105,22 +112,23 @@ class Instrument():
     #         self.evaluated_response[nfreq] = self._evalresp(fmin=1e-10, nfreq=nfreq)
     #     return self.evaluated_response[nfreq]
     
-    def find_responses(self, datetime=None):
-        """This function returns a dictionary of response objects of the given components that cover the given timestamp."""
+    def find_obspy_station(self, datetime=None):
+        """This function returns a dictionary of station objects with all available responses that cover the given timestamp."""
         if type(datetime) is str: datetime = UTCDateTime(datetime)
 
         # get timestamp from first response of each set in the response inventory
-        for component_set in self.resp_inventory:
+        for station in self.resp_inventory:
             # return responses if found in resp_inventory
-            if datetime > component_set.start_date and (not component_set.end_date or datetime < component_set.end_date):
-                return component_set
+            if datetime > station.start_date and (not station.end_date or datetime < station.end_date):
+                return station
 
         # download responses if not found in resp_inventory
         try:
-            inv = self.client.get_stations(network=self.network_code, station=self.station_code, starttime=datetime, level='RESP')
-            startdate = inv[0][0].start_date
-            enddate = inv[0][0].end_date or UTCDateTime("30010101")
-            inv.write(f"{self.respdir}/{self.network_code}.{self.station_code}.{startdate.year}.{startdate.julday:03}.{startdate.hour:02}.{enddate.year}.{enddate.julday:03}.{enddate.hour:02}", format="STATIONXML")
+            # inv = self.client.get_stations(network=self.network_code, station=self.station_code, starttime=datetime, level='RESP')
+            # startdate = inv[0][0].start_date
+            # enddate = inv[0][0].end_date or UTCDateTime("30010101")
+            # inv.write(f"{self.respdir}/{self.network_code}.{self.station_code}.{startdate.year}.{startdate.julday:03}.{startdate.hour:02}.{enddate.year}.{enddate.julday:03}.{enddate.hour:02}", format="STATIONXML")
+            inv = download_inventory(self.client, f"{self.respdir}/{self.network_code}.{self.station_code}", network=self.network_code, station=self.station_code, starttime=datetime)
             self.resp_inventory.append(inv[0][0])
             return inv[0][0]
         except:
@@ -137,6 +145,9 @@ class Instrument():
                 
 
         # return resp_dict
+
+    def add_event(self, datetime_str):
+        self.resp4record[datetime_str] = self.find_obspy_station(datetime_str)
 
     def __init__(self, station_str=str, event_records=list, respdir=str):
         self.respdir = respdir
@@ -163,8 +174,7 @@ class Instrument():
         # if len(network_code) == 1: network_code += '-'
         # if len(self.station_code) == 3: self.station_code += '-'
 
-        for datetime_str in event_records:
-            self.resp4record[datetime_str] = self.find_responses(datetime_str)
+        for datetime_str in event_records: self.add_event(datetime_str)
 
     def __repr__(self):
         return f"{self.network_code}.{self.station_code}: "+', '.join([f"{sta.start_date.year}.{sta.start_date.julday:03}.{sta.start_date.hour:02}.{(sta.end_date.year if sta.end_date else 3001)}.{(sta.end_date.julday if sta.end_date else 1):03}.{(sta.end_date.hour if sta.end_date else 0):02}" for sta in self.resp_inventory])
@@ -268,7 +278,7 @@ class SeismicData():
                     matchstation.records.append(nlrecord)
         return numNewEvents
     
-    def _fetch_par(self, event, skip_existing_events=False, skip_existing_stations=True, respdir='/Users/jun/phasepick/resp_catalog'):
+    def _fetch_par(self, event, skip_existing_events=False, skip_existing_stations=True):
         srctime = event.srctime
         srctime.precision = 3
         starttime = fn_starttime_full(srctime)
@@ -366,6 +376,7 @@ class SeismicData():
                                 # network = inv.select(station=trace.stats.station)[0]
                                 # station = network[0]
                                 network = trace.meta.network
+                                station_str = f'{network}.{station}.LH'
 
                                 # # ignore trace if the only component
                                 # if len(traces_selected) < 3:
@@ -396,9 +407,12 @@ class SeismicData():
                                 if location_matching is None:
                                     print(srctime, trace.stats.station, '... X (more or less than 3 LH components)')
                                 else:
-                                    if not self.resplist: self.prepare_resplist(respdir)
-                                    stations_matching = self.resplist[f'{network}.{station}.LH'].find_responses(UTCDateTime(srctime))
-                                    if not stations_matching: stations_matching = self.client.get_stations(station=station, starttime=starttime, endtime=endtime, channel="LH?")[0][0]
+                                    if station_str in self.resplist:
+                                        stations_matching = self.resplist[station_str].find_obspy_station(UTCDateTime(srctime))
+                                    else: stations_matching = None
+                                    if not stations_matching:
+                                        stations_matching = download_inventory(self.client, f"{self.respdir}/{self.network_code}.{self.station_code}", network=network, station=station, starttime=starttime)[0][0]
+                                        # stations_matching = self.client.get_stations(station=station, starttime=starttime, endtime=endtime, channel="LH?")[0][0]
                                     fetched = Station(stations_matching.code, stations_matching.latitude, stations_matching.longitude,
                                                         dist=locations2degrees(lat1=stations_matching.latitude, long1=stations_matching.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
                                                         azi=gps2dist_azimuth(lat1=stations_matching.latitude, lon1=stations_matching.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2],
@@ -449,13 +463,13 @@ class SeismicData():
                     if not trace.stats.station in station_list:
                         station = trace.meta.station
                         network = trace.meta.network
-                        if not self.resplist: self.prepare_resplist(respdir)
+                        station_str = f'{network}.{station}.LH'
                         try:
                             # inv = self.client.get_stations(station=trace.stats.station, starttime=trace.stats.starttime, endtime=trace.stats.endtime, level="station")
                             # fetched = Station(inv[0][0].code, inv[0][0].latitude, inv[0][0].longitude,
                             #                 dist=locations2degrees(lat1=inv[0][0].latitude, long1=inv[0][0].longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
                             #                 azi=gps2dist_azimuth(lat1=inv[0][0].latitude, lon1=inv[0][0].longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2])
-                            stations_matching = self.resplist[f'{network}.{station}.LH'].find_responses(UTCDateTime(srctime))
+                            stations_matching = self.resplist[station_str].find_obspy_station(UTCDateTime(srctime))
                             if not stations_matching: stations_matching = self.client.get_stations(station=station, starttime=starttime, endtime=endtime, channel="LH?")[0][0]
                             fetched = Station(stations_matching.code, stations_matching.latitude, stations_matching.longitude,
                                                 dist=locations2degrees(lat1=stations_matching.latitude, long1=stations_matching.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
@@ -473,9 +487,11 @@ class SeismicData():
             return event
 
 
-    def fetch(self, cpu_number=12):
+    def fetch(self, cpu_number=12, respdir='/Users/jun/phasepick/resp_catalog'):
         self.numdownloaded = 0
         event_count = 0
+        print("load station infomation...")
+        if not self.resplist: self.prepare_resplist(respdir); self.respdir = respdir
         print("start fetching...")
         p = Pool(cpu_number) # set parallel fetch
         # self.events = p.map(self._fetch_par, self.events[:2000])
@@ -598,7 +614,7 @@ class SeismicData():
                 #         # if len(station_responses[0].sensitivity)*len(station_responses[1].sensitivity)*len(station_responses[2].sensitivity) == 0: raise ValueError(f"response is missing for {network_code}.{trace.labelsta['name']}")
 
                 #         # using obspy response object
-                #         station_responses = [self.resplist[f'{network_code}.{trace.labelsta["name"]}.LH'].find_responses(event.srctime).select(channel=channel,time=event.srctime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
+                #         station_responses = [self.resplist[f'{network_code}.{trace.labelsta["name"]}.LH'].find_obspy_station(event.srctime).select(channel=channel,time=event.srctime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
                 #     except ValueError as e:
                 #         print(f"Value error for {obsfile_name}: {e}"); return
                 #     except FileNotFoundError as e:
@@ -615,7 +631,7 @@ class SeismicData():
                 #         # if len(station_responses[0].sensitivity)*len(station_responses[1].sensitivity)*len(station_responses[2].sensitivity) == 0: raise ValueError(f"response is missing for {network_code}.{trace.labelsta['name']}")       
                         
                 #         # using obspy response object
-                #         station_responses = [self.resplist[f'{network_code}.{trace.labelsta["name"]}.LH'].find_responses(event.srctime).select(channel=channel,time=event.srctime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
+                #         station_responses = [self.resplist[f'{network_code}.{trace.labelsta["name"]}.LH'].find_obspy_station(event.srctime).select(channel=channel,time=event.srctime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
                 #     except ValueError as e:
                 #         print(f"Value error for {obsfile_name}: {e}"); return
                 #     except FileNotFoundError as e:
@@ -662,7 +678,7 @@ class SeismicData():
                         # stream = self.deconvolve(rawdata=stream, station_components=station_responses, reference_components=reference_responses)
                         # deconvolve and convolve instrument response using obspy
                         stream = self.deconv_resp(rawdata=stream,
-                                                  station_resps=[self.resplist['SR.GRFO.LH'].find_responses(UTCDateTime("19830110")).select(channel=channel,time=UTCDateTime("19830110"))[0].response for channel in ["LHE", "LHN", "LHZ"]],
+                                                  station_resps=[self.resplist['SR.GRFO.LH'].find_obspy_station(UTCDateTime("19830110")).select(channel=channel,time=UTCDateTime("19830110"))[0].response for channel in ["LHE", "LHN", "LHZ"]],
                                                   reference_resps=reference_responses)
                         
                         # calculate azimuth angle
@@ -857,7 +873,7 @@ class SeismicData():
             # get instrument response for reference station
             # reference_responses = [InstrumentResponse(network='SR', station='GRFO', component=component, timestamp=UTCDateTime(1983, 1, 1)) for component in ['LHE', 'LHN', 'LHZ']]
             reference_datetime = UTCDateTime(1983, 1, 1)
-            reference_responses = [self.resplist['SR.GRFO.LH'].find_responses(reference_datetime).select(channel=channel,time=reference_datetime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
+            reference_responses = [self.resplist['SR.GRFO.LH'].find_obspy_station(reference_datetime).select(channel=channel,time=reference_datetime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
 
         # set directory
         loaddir = f'rawdata{dir_ext}' if preprocess else 'training'
