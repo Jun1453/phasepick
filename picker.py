@@ -359,7 +359,7 @@ class SeismicData():
                 #     except:
                 #         print(srctime,  '... X (error in retrieving traces)')
                 #         return
-                        
+                print(f"start fetching for the event {srctime}")
                 fetched_stream = self.client.get_waveforms("*", "*", "*", "LH?", starttime, endtime, attach_response=True)
                 for trace in fetched_stream.select(network="SY"): fetched_stream.remove(trace)
                 if len(fetched_stream)>0:
@@ -399,13 +399,14 @@ class SeismicData():
                                 for location_matching in location_priority:
                                     traces_matching = fetched_stream.select(station=station, location=location_matching)
                                     if len(traces_matching) == 3: break
-                                    if len(traces_matching) == 5:
+                                    elif len(traces_matching) > 3:
                                         traces_matching.remove(traces_matching.select(channel='LH1'))
                                         traces_matching.remove(traces_matching.select(channel='LH2'))
-                                        break
+                                        if len(traces_matching) == 3: break
                                 
                                 if location_matching is None:
                                     print(srctime, trace.stats.station, '... X (more or less than 3 LH components)')
+                                    station_list.append(trace.stats.station)
                                 else:
                                     if station_str in self.resplist:
                                         stations_matching = self.resplist[station_str].find_obspy_station(UTCDateTime(srctime))
