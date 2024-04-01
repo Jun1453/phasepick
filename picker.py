@@ -363,7 +363,7 @@ class SeismicData():
                 fetched_stream = self.client.get_waveforms("*", "*", "*", "LH?", starttime, endtime, attach_response=True)
                 for trace in fetched_stream.select(network="SY"): fetched_stream.remove(trace)
                 if len(fetched_stream)>0:
-                    fetched_stream.write(filename)
+                    fetched_stream.write(filename, format="PICKLE")
                     
                     station_list = []
                     # fetched_stream = read(filename)
