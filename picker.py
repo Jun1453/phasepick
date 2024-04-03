@@ -283,6 +283,8 @@ class SeismicData():
         srctime.precision = 3
         starttime = fn_starttime_full(srctime)
         endtime = fn_endtime_full(srctime)
+        print(f"processing {srctime}...\n")
+        return
 
         # savedir = f"./rawdata/{srctime}"
         
@@ -864,7 +866,7 @@ class SeismicData():
             with open(self.resp_list_filename, 'rb') as file:
                 self.resplist = pickle.load(file)
 
-    def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5', overwrite_hdf=True, obsfile='separate', year_option=None, dir_ext='', cpu_number=36, respdir='/Users/jun/phasepick/resp_catalog'):
+    def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5', overwrite_hdf=True, obsfile='separate', year_option=None, dir_ext='', cpu_number=12, respdir='/Users/jun/phasepick/resp_catalog'):
         if not shift: shift = (0,0)
         
         # load station list and build inventory for station response
@@ -1348,8 +1350,8 @@ if __name__ == '__main__':
     catalog = np.load('/Users/jun/phasepick/gcmt.npy',allow_pickle=True)
     picker.data.events = catalog
     print("catalog loaded.")
-    picker.data.fetch(cpu_number=36)
-    picker.dump_dataset("./rawdata_catalog2/data_fetched_catalog_2010_2.pkl")
+    picker.data.fetch(cpu_number=12)
+    # picker.dump_dataset("./rawdata_catalog2/data_fetched_catalog_2010_2.pkl")
 
     # # load fetched dataset, remove instrument response, and create training dataset
     # # picker = Picker()
