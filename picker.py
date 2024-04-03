@@ -283,8 +283,8 @@ class SeismicData():
         srctime.precision = 3
         starttime = fn_starttime_full(srctime)
         endtime = fn_endtime_full(srctime)
-        print(f"processing {srctime}...\n")
-        return
+        # print(f"fetching {srctime}...")
+        # return
 
         # savedir = f"./rawdata/{srctime}"
         
@@ -336,7 +336,7 @@ class SeismicData():
         # when no stations are given, search for every availible
         else:
             # savedir = f"./rawdata_catalog/{srctime}"
-            filename = f"./rawdata_catalog2/{srctime}.LH.obspy"
+            filename = f"./rawdata_catalog3/{srctime}.LH.obspy"
             # fetch data if no file exist
             if (not (os.path.exists(filename) and skip_existing_events)):
                 # # return event
@@ -503,7 +503,7 @@ class SeismicData():
         for ev in self.events:
             if ev: self.numdownloaded+=len(ev.stations); event_count+=1
             else: self.events.remove(ev)
-        print(f"{len(event_count)} events with {self.numdownloaded} seismograms are processed.")
+        print(f"{event_count} events with {self.numdownloaded} seismograms are processed.")
 
     def link_downloaded(self, israwdata=True):
         count = 0
