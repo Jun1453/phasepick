@@ -293,7 +293,8 @@ class SeismicData():
         # find stations one by one according to the table
         if len(event.stations) > 0:
             savedir = f"./rawdata/{srctime}"
-            if (not (os.path.exists(savedir) and skip_existing_events)):
+            #if (not (os.path.exists(savedir) and skip_existing_events)):
+            if (False):
                 for station in event.stations:
                     ## revise the following line 
                     if not (glob.glob(f"{savedir}/*.{station.labelsta['name']}.LH.obspy") and skip_existing_stations):
@@ -338,7 +339,8 @@ class SeismicData():
             # savedir = f"./rawdata_catalog/{srctime}"
             filename = f"./rawdata_catalog3/{srctime}.LH.obspy"
             # fetch data if no file exist
-            if (not (os.path.exists(filename) and skip_existing_events)):
+            #if (not (os.path.exists(filename) and skip_existing_events)):
+            if (True):
                 # # return event
                 # try:
                 #     inv = self.client.get_stations(starttime=starttime, endtime=endtime, channel="LHZ,LHN,LHE")
@@ -1350,7 +1352,7 @@ if __name__ == '__main__':
     catalog = np.load('/Users/jun/phasepick/gcmt.npy',allow_pickle=True)
     picker.data.events = catalog
     print("catalog loaded.")
-    picker.data.fetch(cpu_number=12)
+    picker.data.fetch(cpu_number=2424)
     # picker.dump_dataset("./rawdata_catalog2/data_fetched_catalog_2010_2.pkl")
 
     # # load fetched dataset, remove instrument response, and create training dataset
