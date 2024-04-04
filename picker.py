@@ -1,5 +1,6 @@
 import io
 import os
+import sys
 import csv
 import glob
 import json
@@ -27,6 +28,7 @@ from obspy.signal.invsim import simulate_seismometer, evalresp_for_frequencies
 from obspy.clients.fdsn.header import FDSNNoDataException
 from obspy.core.util.deprecation_helpers import ObsPyDeprecationWarning
 
+# if len(sys.argv)==2: log = open(sys.argv[1], "w"); sys.stdout = log; sys.stderr = log
 warnings.simplefilter('ignore', category=ObsPyDeprecationWarning)
 
 fn_starttime_full = lambda srctime: srctime - 0.5 * 60 * 60
@@ -364,7 +366,9 @@ class SeismicData():
                 #         print(srctime,  '... X (error in retrieving traces)')
                 #         return
                 print(f"start fetching for the event {srctime}")
-                fetched_stream = self.client.get_waveforms("*", "*", "*", "LH?", starttime, endtime, attach_response=True)
+                #time.sleep(10); print(f"{srctime} foo:{self.resplist['foo']}"); return
+                client = Client("IRIS")
+                fetched_stream = client.get_waveforms("*", "*", "*", "LH?", starttime, endtime, attach_response=True)
                 for trace in fetched_stream.select(network="SY"): fetched_stream.remove(trace)
                 if len(fetched_stream)>0:
                     fetched_stream.write(filename, format="PICKLE")
@@ -412,11 +416,13 @@ class SeismicData():
                                     print(srctime, trace.stats.station, '... X (more or less than 3 LH components)')
                                     station_list.append(trace.stats.station)
                                 else:
-                                    if station_str in self.resplist:
-                                        stations_matching = self.resplist[station_str].find_obspy_station(UTCDateTime(srctime))
-                                    else: stations_matching = None
-                                    if not stations_matching:
-                                        stations_matching = download_inventory(self.client, f"{self.respdir}/{self.network_code}.{self.station_code}", network=network, station=station, starttime=starttime)[0][0]
+                                    # if station_str in self.resplist:
+                                    #     stations_matching = self.resplist[station_str].find_obspy_station(UTCDateTime(srctime))
+                                    # else: stations_matching = None
+                                    # if not stations_matching:
+                                    if True:
+                                        # stations_matching = download_inventory(client, f"{self.respdir}/{self.network_code}.{self.station_code}", network=network, station=station, starttime=starttime)[0][0]
+                                        stations_matching = client.get_stations(level='station', network=network, station=station, starttime=starttime)[0][0]
                                         # stations_matching = self.client.get_stations(station=station, starttime=starttime, endtime=endtime, channel="LH?")[0][0]
                                     fetched = Station(stations_matching.code, stations_matching.latitude, stations_matching.longitude,
                                                         dist=locations2degrees(lat1=stations_matching.latitude, long1=stations_matching.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
@@ -491,17 +497,85 @@ class SeismicData():
 
             return event
 
+    def _fetch_par_spawn(self, event):
+        srctime = event.srctime
+        srctime.precision = 3
+        starttime = srctime - 0.5 * 60 * 60
+        endtime = srctime + 2 * 60 * 60
+        
+        filename = f"./rawdata_catalog3/{srctime}.LH.obspy"
+        print(f"start fetching for the event {srctime}")
+        #time.sleep(10); print(f"{srctime} foo:{self.resplist['foo']}"); return
+        # time.sleep(10); print(f"{srctime} foobar"); return
+        client = Client("IRIS")
+        fetched_stream = client.get_waveforms("*", "*", "*", "LH?", starttime, endtime, attach_response=True)
+        for trace in fetched_stream.select(network="SY"): fetched_stream.remove(trace)
+        if len(fetched_stream)>0:
+            fetched_stream.write(filename, format="PICKLE")
+            
+            station_list = []
+            for trace in fetched_stream:
+                try:
+                    station = trace.meta.station
+                    # when processing for a new station
+                    if not trace.stats.station in station_list:
+                        network = trace.meta.network
+                        station_str = f'{network}.{station}.LH'
+                        location_priority = ['', '00', '10', '20', None]
+                        for location_matching in location_priority:
+                            traces_matching = fetched_stream.select(station=station, location=location_matching)
+                            if len(traces_matching) == 3: break
+                            elif len(traces_matching) > 3:
+                                if len(traces_matching.select(channel='LHE'))>0 and len(traces_matching.select(channel='LHN'))>0:
+                                    traces_matching.remove(traces_matching.select(channel='LH1'))
+                                    traces_matching.remove(traces_matching.select(channel='LH2'))
+                                    if len(traces_matching) == 3: break
+                                else:
+                                    traces_matching.remove(traces_matching.select(channel='LHN'))
+                                    traces_matching.remove(traces_matching.select(channel='LHE'))
+                                    if len(traces_matching) == 3: break
+                        
+                        if location_matching is None:
+                            print(srctime, trace.stats.station, '... X (more or less than 3 LH components)')
+                            station_list.append(trace.stats.station)
+                        else:
+                            stations_matching = client.get_stations(level='station', network=network, station=station, starttime=starttime)[0][0]
+                            fetched = Station(stations_matching.code, stations_matching.latitude, stations_matching.longitude,
+                                                dist=locations2degrees(lat1=stations_matching.latitude, long1=stations_matching.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
+                                                azi=gps2dist_azimuth(lat1=stations_matching.latitude, lon1=stations_matching.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2],
+                                                loc=location_priority)
+                            fetched.labelnet['code'] = network
+                            fetched.isdataexist = True
+                            event.stations.append(fetched)
+                            station_list.append(trace.stats.station)
+                        
+                except:
+                    print(srctime, trace.stats.station, '... X (error in reading fetched traces)')
+                    station_list.append(trace.stats.station)
 
-    def fetch(self, cpu_number=12, respdir='/Users/jun/phasepick/resp_catalog'):
+            # sleep or IRIS may cut down your connection
+            time.sleep(0.2)
+            print(srctime, f"Fetched for {len(event.stations)} stations")
+            return event
+        
+        else:
+            print(srctime, '... X (no available station exists)')
+            return event
+        
+
+    def fetch(self, cpu_number=None, respdir='/Users/jun/phasepick/resp_catalog'):
         self.numdownloaded = 0
         event_count = 0
-        print("load station infomation...")
-        if not self.resplist: self.prepare_resplist(respdir); self.respdir = respdir
-        print("start fetching...")
-        p = get_context('fork').Pool(cpu_number) # set parallel fetch
+        # print("load station infomation...")
+        # if not self.resplist: self.prepare_resplist(respdir); self.respdir = respdir
+        #if not self.resplist: self.resplist = {"foo": "bar"}
+        print("setting multiprocessing for fetching...")
+        p = ThreadPool(cpu_number or cpu_count()) # set parallel fetch
+        t0 = time.time()
         # self.events = p.map(self._fetch_par, self.events[:2000])
-        self.events = p.map(self._fetch_par, self.events[32020:33872]) #only year 2010
-        print("fetching finished.")
+        self.events = p.map(self._fetch_par_spawn, self.events[32020:33872]) #only year 2010
+        # self.events = p.map(self._fetch_par_spawn, self.events[32020:32056]) #only year 2010
+        print(f"fetching finished in {time.time()-t0} sec.")
         for ev in self.events:
             if ev: self.numdownloaded+=len(ev.stations); event_count+=1
             else: self.events.remove(ev)
@@ -1352,7 +1426,7 @@ if __name__ == '__main__':
     catalog = np.load('/Users/jun/phasepick/gcmt.npy',allow_pickle=True)
     picker.data.events = catalog
     print("catalog loaded.")
-    picker.data.fetch(cpu_number=2424)
+    picker.data.fetch(cpu_number=36)
     # picker.dump_dataset("./rawdata_catalog2/data_fetched_catalog_2010_2.pkl")
 
     # # load fetched dataset, remove instrument response, and create training dataset
