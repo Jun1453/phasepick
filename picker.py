@@ -504,63 +504,88 @@ class SeismicData():
         endtime = srctime + 2 * 60 * 60
         
         filename = f"./rawdata_catalog3/{srctime}.LH.obspy"
-        print(f"start fetching for the event {srctime}")
-        #time.sleep(10); print(f"{srctime} foo:{self.resplist['foo']}"); return
-        # time.sleep(10); print(f"{srctime} foobar"); return
         client = Client("IRIS")
-        fetched_stream = client.get_waveforms("*", "*", "*", "LH?", starttime, endtime, attach_response=True)
-        for trace in fetched_stream.select(network="SY"): fetched_stream.remove(trace)
-        if len(fetched_stream)>0:
-            fetched_stream.write(filename, format="PICKLE")
-            
-            station_list = []
-            for trace in fetched_stream:
-                try:
-                    station = trace.meta.station
-                    # when processing for a new station
-                    if not trace.stats.station in station_list:
-                        network = trace.meta.network
-                        station_str = f'{network}.{station}.LH'
-                        location_priority = ['', '00', '10', '20', None]
-                        for location_matching in location_priority:
-                            traces_matching = fetched_stream.select(station=station, location=location_matching)
-                            if len(traces_matching) == 3: break
-                            elif len(traces_matching) > 3:
-                                if len(traces_matching.select(channel='LHE'))>0 and len(traces_matching.select(channel='LHN'))>0:
-                                    traces_matching.remove(traces_matching.select(channel='LH1'))
-                                    traces_matching.remove(traces_matching.select(channel='LH2'))
-                                    if len(traces_matching) == 3: break
-                                else:
-                                    traces_matching.remove(traces_matching.select(channel='LHN'))
-                                    traces_matching.remove(traces_matching.select(channel='LHE'))
-                                    if len(traces_matching) == 3: break
-                        
-                        if location_matching is None:
-                            print(srctime, trace.stats.station, '... X (more or less than 3 LH components)')
-                            station_list.append(trace.stats.station)
-                        else:
-                            stations_matching = client.get_stations(level='station', network=network, station=station, starttime=starttime)[0][0]
-                            fetched = Station(stations_matching.code, stations_matching.latitude, stations_matching.longitude,
-                                                dist=locations2degrees(lat1=stations_matching.latitude, long1=stations_matching.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
-                                                azi=gps2dist_azimuth(lat1=stations_matching.latitude, lon1=stations_matching.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2],
-                                                loc=location_priority)
-                            fetched.labelnet['code'] = network
-                            fetched.isdataexist = True
-                            event.stations.append(fetched)
-                            station_list.append(trace.stats.station)
-                        
-                except:
-                    print(srctime, trace.stats.station, '... X (error in reading fetched traces)')
-                    station_list.append(trace.stats.station)
 
-            # sleep or IRIS may cut down your connection
-            time.sleep(0.2)
-            print(srctime, f"Fetched for {len(event.stations)} stations")
-            return event
-        
+        if (os.path.exists(filename)):
+            # load data and get station metadata
+            loaded_stream = read(filename)
+            station_list = []
+            for trace in loaded_stream:
+                if not trace.stats.station in station_list:
+                    station = trace.meta.station
+                    network = trace.meta.network
+                    station_str = f'{network}.{station}.LH'
+                    try:
+                        stations_matching = client.get_stations(level='station', network=network, station=station, starttime=starttime)[0][0]
+                        fetched = Station(stations_matching.code, stations_matching.latitude, stations_matching.longitude,
+                                            dist=locations2degrees(lat1=stations_matching.latitude, long1=stations_matching.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
+                                            azi=gps2dist_azimuth(lat1=stations_matching.latitude, lon1=stations_matching.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2],
+                                            loc=location_priority)
+                        fetched.labelnet['code'] = network
+                        fetched.isdataexist = True
+                        event.stations.append(fetched)
+                    except:
+                        print(srctime, trace.stats.station, '... X (failed loading)')
+                    station_list.append(trace.stats.station)
+            print(srctime, f"Loaded fetched traces for {len(event.stations)} stations")
+
         else:
-            print(srctime, '... X (no available station exists)')
-            return event
+            print(f"start fetching for the event {srctime}")
+            #time.sleep(10); print(f"{srctime} foo:{self.resplist['foo']}"); return
+            # time.sleep(10); print(f"{srctime} foobar"); return
+            fetched_stream = client.get_waveforms("*", "*", "*", "LH?", starttime, endtime, attach_response=True)
+            for trace in fetched_stream.select(network="SY"): fetched_stream.remove(trace)
+            if len(fetched_stream)>0:
+                fetched_stream.write(filename, format="PICKLE")
+                
+                station_list = []
+                for trace in fetched_stream:
+                    try:
+                        station = trace.meta.station
+                        # when processing for a new station
+                        if not trace.stats.station in station_list:
+                            network = trace.meta.network
+                            station_str = f'{network}.{station}.LH'
+                            location_priority = ['', '00', '10', '20', None]
+                            for location_matching in location_priority:
+                                traces_matching = fetched_stream.select(station=station, location=location_matching)
+                                if len(traces_matching) == 3: break
+                                elif len(traces_matching) > 3:
+                                    if len(traces_matching.select(channel='LHE'))>0 and len(traces_matching.select(channel='LHN'))>0:
+                                        traces_matching.remove(traces_matching.select(channel='LH1'))
+                                        traces_matching.remove(traces_matching.select(channel='LH2'))
+                                        if len(traces_matching) == 3: break
+                                    else:
+                                        traces_matching.remove(traces_matching.select(channel='LHN'))
+                                        traces_matching.remove(traces_matching.select(channel='LHE'))
+                                        if len(traces_matching) == 3: break
+                            
+                            if location_matching is None:
+                                print(srctime, trace.stats.station, '... X (more or less than 3 LH components)')
+                                station_list.append(trace.stats.station)
+                            else:
+                                stations_matching = client.get_stations(level='station', network=network, station=station, starttime=starttime)[0][0]
+                                fetched = Station(stations_matching.code, stations_matching.latitude, stations_matching.longitude,
+                                                    dist=locations2degrees(lat1=stations_matching.latitude, long1=stations_matching.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
+                                                    azi=gps2dist_azimuth(lat1=stations_matching.latitude, lon1=stations_matching.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2],
+                                                    loc=location_priority)
+                                fetched.labelnet['code'] = network
+                                fetched.isdataexist = True
+                                event.stations.append(fetched)
+                                station_list.append(trace.stats.station)
+                            
+                    except:
+                        print(srctime, trace.stats.station, '... X (error in reading fetched traces)')
+                        station_list.append(trace.stats.station)
+
+                # sleep or IRIS may cut down your connection
+                time.sleep(0.2)
+                print(srctime, f"Fetched for {len(event.stations)} stations")
+            
+            else:
+                print(srctime, '... X (no available station exists)')
+                
+        return event
         
 
     def fetch(self, cpu_number=None, respdir='/Users/jun/phasepick/resp_catalog'):
