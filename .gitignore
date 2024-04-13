@@ -25,8 +25,7 @@ hmsl_*/
 *_pred_*/
 *backups
 *_old
-rawdata_catalog
-rawdata_catalog2
+rawdata_catalog*
 resp_catalog
 training_catalog2
 

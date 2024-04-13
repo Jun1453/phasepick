@@ -585,11 +585,11 @@ class SeismicData():
         stalist = {} #{str: list}
 
         for z_trace in stream.select(channel="LHZ"):
-        station_name = f"{z_trace.stats.network}.{z_trace.stats.station}.LH"
-        if station_name in stalist:
-            stalist[station_name].append(datetime_str)
-        else:
-            stalist[station_name] = [datetime_str]
+            station_name = f"{z_trace.stats.network}.{z_trace.stats.station}.LH"
+            if station_name in stalist:
+                stalist[station_name].append(datetime_str)
+            else:
+                stalist[station_name] = [datetime_str]
 
         # print(f"{len(obspy_filenames)} events are found")
         # p = multiprocessing.get_context("fork").Pool(12)
@@ -1456,7 +1456,7 @@ if __name__ == '__main__':
     catalog = np.load('/Users/jun/phasepick/gcmt.npy',allow_pickle=True)
     picker.data.events = catalog
     print("catalog loaded.")
-    picker.data.fetch(cpu_number=15)
+    picker.data.fetch(cpu_number=10)
     # picker.dump_dataset("./rawdata_catalog2/data_fetched_catalog_2010_2.pkl")
 
     # # load fetched dataset, remove instrument response, and create training dataset

@@ -5,13 +5,6 @@ import pickle
 import multiprocessing
 from obspy.clients.fdsn import Client
 
-fn_starttime_full = lambda srctime: srctime - 0.5 * 60 * 60
-fn_endtime_full = lambda srctime: srctime + 2 * 60 * 60
-
-client = Client('IRIS')
-obspy_filenames = glob.glob("./rawdata_catalog2/*.obspy")
-stalist = {} #{str: list}
-
 def func(i):
     print(f"procesing #{i}: {obspy_filenames[i]}")
     datetime_str = obspy_filenames[i].split('/')[-1].split('.')[0]
@@ -22,8 +15,8 @@ def func(i):
         srctime.precision = 3
         starttime = fn_starttime_full(srctime)
         endtime = fn_endtime_full(srctime)
-        filename = f"./rawdata_catalog2/{srctime}.LH.obspy"
-        client.get_waveforms("*", "*", "*", "LHZ,LHN,LHE", starttime, endtime, attach_response=True, filename=filename)
+        filename = f"./rawdata_catalog3/{srctime}.LH.obspy"
+        client.get_waveforms("*", "*", "*", "LH?", starttime, endtime, attach_response=True, filename=filename)
         try:
             stream = obspy.read(obspy_filenames[i])
         except:
@@ -60,15 +53,24 @@ def func(i):
         #         traces_selected = fetched_stream.select(station=trace.stats.station, location='00')
         #         if len(traces_selected) == 3: location = traces_selected[0].stats.location
         #         else: continue
-    
-# print(f"{len(obspy_filenames)} events are found")
-# p = multiprocessing.get_context("fork").Pool(12)
-# p.map(func, list(range(len(obspy_filenames[:20]))))
-for i in range(len(obspy_filenames)):
-    func(i)
-# print(stalist)
-with open('stalist.pkl', 'wb') as file:
-    pickle.dump(stalist, file)
+
+if __name__ == '__main__':
+
+    fn_starttime_full = lambda srctime: srctime - 0.5 * 60 * 60
+    fn_endtime_full = lambda srctime: srctime + 2 * 60 * 60
+
+    client = Client('IRIS')
+    obspy_filenames = glob.glob("./rawdata_catalog3/*.obspy")
+    stalist = {} #{str: list}
+
+    # print(f"{len(obspy_filenames)} events are found")
+    # p = multiprocessing.get_context("fork").Pool(12)
+    # p.map(func, list(range(len(obspy_filenames[:20]))))
+    for i in range(len(obspy_filenames)):
+        func(i)
+    # print(stalist)
+    with open('stalist2010.pkl', 'wb') as file:
+        pickle.dump(stalist, file)
 
                 
 # def func_test(a):
