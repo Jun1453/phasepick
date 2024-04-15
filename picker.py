@@ -1048,15 +1048,17 @@ class SeismicData():
         return datalist
 
 
-    def __init__(self, picker, client: Client, paths: list, autofetch=False, isTable=True, station_list_filename="/Users/jun/phasepick/stalist.pkl", resp_list_filename="/Users/jun/phasepick/resp_catalog/resplist.pkl", rawdata_dir="./rawdata_catalog3"):
+    def __init__(self, picker, client: Client, paths: list, **kwargs):
         self.picker = picker
         self.client = client
         self.numdownloaded = 0
-        self.rawdata_dir = rawdata_dir
-        self.station_list_filename = station_list_filename
-        self.resp_list_filename = resp_list_filename
         self.resplist = None
         self.working_freqencies = None
+        autofetch = kwargs['autofetch'] if 'autofetch' in kwargs else False
+        isTable = kwargs['isTable'] if 'isTable' in kwargs else True
+        self.station_list_filename = kwargs['station_list_filename'] if 'station_list_filename' in kwargs else "/Users/jun/phasepick/stalist.pkl"
+        self.resp_list_filename = kwargs['resp_list_filename'] if 'resp_list_filename' in kwargs else "/Users/jun/phasepick/resp_catalog/resplist.pkl"
+        self.rawdata_dir = kwargs['rawdata_dir'] if 'rawdata_dir' in kwargs else "./rawdata_catalog3"
 
         # create event list from paths
         self.events = []
@@ -1079,9 +1081,9 @@ class Picker():
         self.station_dict = None
         self.default_p_calctime = default_p_calctime   
 
-    def create_dataset(self, table_filenames):
+    def create_dataset(self, table_filenames, **kwargs):
         "create dataset from scretch"
-        self.data = SeismicData(self, self.client, table_filenames, autofetch=False)
+        self.data = SeismicData(self, self.client, table_filenames, kwargs)
 
     def create_dataset_from_folder(self, folder_paths):
         "create dataset from scretch"
@@ -1442,22 +1444,31 @@ if __name__ == '__main__':
     # picker.prepare_catalog('./training_onlyrot', './hmsl_rot_preproc', './hmsl_rot_hdfs', 10)
 
     # best workflow:
-    # simply download all LH data (prefered # of MP downloading sessions is 15 for IRIS) by data.fetch
+    # -> simply download all GCMT cataloged LH data (prefered # of MP downloading sessions is 10? for IRIS) by data.fetch
+    # picker = Picker()
+    # picker.create_dataset([])
+    # catalog = np.load('/Users/jun/phasepick/gcmt.npy',allow_pickle=True)
+    # picker.data.events = catalog
+    # print("catalog loaded.")
+    # picker.data.fetch(cpu_number=10)
     # -> make station list into stalist.pkl by `python stalist.py`
     # -> sort response list into resplist.pkl by data.prepare_resplist()
+
     # -> read the final resplist.pkl to generate event-station datalist into data_fetched_catalog.pkl by data.fetch()
     # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
     # -> prepare directory for prediction by picker.prepare_catalog()
     # -> run predition with EQTransfomer in JupyterNotebook
-
-    # create dataset from scretch, fetch seismic data, and dump
     picker = Picker()
     picker.create_dataset([])
-    catalog = np.load('/Users/jun/phasepick/gcmt.npy',allow_pickle=True)
-    picker.data.events = catalog
-    print("catalog loaded.")
-    picker.data.fetch(cpu_number=10)
-    # picker.dump_dataset("./rawdata_catalog2/data_fetched_catalog_2010_2.pkl")
+    picker.data.prepare_resplist(respdir='/Users/jun/phasepick/resp_catalog')
+    # # create dataset from scretch, fetch seismic data, and dump
+    # picker = Picker()
+    # picker.create_dataset([])
+    # catalog = np.load('/Users/jun/phasepick/gcmt.npy',allow_pickle=True)
+    # picker.data.events = catalog
+    # print("catalog loaded.")
+    # picker.data.fetch(cpu_number=10)
+    # # picker.dump_dataset("./rawdata_catalog2/data_fetched_catalog_2010_2.pkl")
 
     # # load fetched dataset, remove instrument response, and create training dataset
     # # picker = Picker()
