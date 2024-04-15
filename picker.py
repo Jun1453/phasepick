@@ -1459,7 +1459,7 @@ if __name__ == '__main__':
     # -> prepare directory for prediction by picker.prepare_catalog()
     # -> run predition with EQTransfomer in JupyterNotebook
     picker = Picker()
-    picker.create_dataset([])
+    picker.create_dataset([], station_list_filename="/Users/jun/phasepick/stalist2010.pkl", rawdata_dir="/Users/jun/phasepick/rawdata_catalog3")
     picker.data.prepare_resplist(respdir='/Users/jun/phasepick/resp_catalog')
     # # create dataset from scretch, fetch seismic data, and dump
     # picker = Picker()
