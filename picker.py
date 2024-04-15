@@ -476,7 +476,7 @@ class SeismicData():
     def _prepare_event_table_par(self, event):
         srctime, starttime, endtime = self._get_srctime(event.srctime)
         filename = f"{self.rawdata_dir}/{srctime}.LH.obspy"
-        client = Client("IRIS")
+        # client = Client("IRIS")
 
         if (os.path.exists(filename)):
             loaded_stream = read(filename)
@@ -489,7 +489,7 @@ class SeismicData():
                         station = trace.meta.station
                         network = trace.meta.network
                         station_str = f'{network}.{station}.LH'
-                        location_priority = ['', '00', '10', '20', None]
+                        location_priority = ['', '00', None]
                         for location_matching in location_priority:
                             traces_matching = loaded_stream.select(station=station, location=location_matching)
                             if len(traces_matching) == 3: break
@@ -509,7 +509,8 @@ class SeismicData():
                             try: stations_matching = self.resplist[station_str].find_obspy_station(UTCDateTime(srctime))
                             except: stations_matching = None
                             try:
-                                if stations_matching == None: stations_matching = client.get_stations(level='station', network=network, station=station, starttime=starttime)[0][0]
+                                # if stations_matching == None: stations_matching = client.get_stations(level='station', network=network, station=station, starttime=starttime)[0][0]
+                                if stations_matching == None: raise Exception("no matched station")
                                 fetched = Station(stations_matching.code, stations_matching.latitude, stations_matching.longitude,
                                                     dist=locations2degrees(lat1=stations_matching.latitude, long1=stations_matching.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
                                                     azi=gps2dist_azimuth(lat1=stations_matching.latitude, lon1=stations_matching.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2],
@@ -517,13 +518,13 @@ class SeismicData():
                                 fetched.labelnet['code'] = network
                                 fetched.isdataexist = True
                                 event.stations.append(fetched)
-                            except: print(srctime, trace.stats.station, '... X (failed fetching)')
+                            except: print(srctime, trace.stats.station, '... X (failed setting up station)')
                         processed_station.append(trace.stats.station)
                 except:
                         print(srctime, trace.stats.station, '... X (error in reading fetched traces)')
                         processed_station.append(trace.stats.station)
 
-            time.sleep(0.2)
+            # time.sleep(0.2)
             print(srctime, f"Loaded fetched traces for {len(event.stations)} stations")
         else: print(f"cannot find event at {filename}")
         return event
@@ -1461,8 +1462,8 @@ if __name__ == '__main__':
 
     # -> read the final resplist.pkl to generate event-station datalist into data_fetched_catalog.pkl by data.prepare_event_table()
     picker.data.prepare_resplist(respdir='/Users/jun/phasepick/resp_catalog')
-    picker.data.prepare_event_table(cpu_number=12)
-    picker.dump_dataset("./rawdata_catalog2/data_fetched_catalog_2010_3.pkl")
+    picker.data.prepare_event_table(cpu_number=36)
+    picker.dump_dataset("./rawdata_catalog3/data_fetched_catalog_2010_3.pkl")
     # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
     datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog3')
     df = pd.DataFrame(datalist)
