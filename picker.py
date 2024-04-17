@@ -163,9 +163,9 @@ class InstrumentResponse():
         if len(station) == 3: station += '-'
 
         if start_end_times:
-            filename = f"/Users/sakon.n/git/phasepick/resp.dir/{network}.{station}.{component}.{start_end_times}"
+            filename = f"/Users/jun/phasepick/resp.dir/{network}.{station}.{component}.{start_end_times}"
         elif timestamp:
-            filenames = glob.glob(f"/Users/sakon.n/git/phasepick/resp.dir/{network}.{station}.{component}.*")
+            filenames = glob.glob(f"/Users/jun/phasepick/resp.dir/{network}.{station}.{component}.*")
             if len(filenames)==0: raise FileNotFoundError(f"response file not found for {network}.{station}.{component}")
             if type(timestamp) is not UTCDateTime: timestamp = UTCDateTime(timestamp)
             for search in filenames:
@@ -441,7 +441,7 @@ class SeismicData():
                 zip(self.events[32020:33872], repeat(common_args)))
         print(f"event table are prepared in {time.time()-t0} sec.")
 
-    def create_stalist(self, cpu_number=None, respdir='/Users/sakon.n/git/phasepick/resp_catalog'): #WIP
+    def create_stalist(self, cpu_number=None, respdir='/Users/jun/phasepick/resp_catalog'): #WIP
         loaded_station_count = 0
         event_count = 0
         if not self.resplist:
@@ -822,7 +822,7 @@ class SeismicData():
         print(f"preparing instrument {str(item[0])}")
         return (item[0], Instrument(station_str=item[0], event_records=item[1], respdir=respdir))
     
-    def prepare_resplist(self, respdir='/Users/sakon.n/git/phasepick/resp_catalog', overwrite=False):
+    def prepare_resplist(self, respdir='/Users/jun/phasepick/resp_catalog', overwrite=False):
         if overwrite or (not os.path.exists(self.response_list_path)):
             with open(self.station_list_path, 'rb') as infile:
                 stalist = pickle.load(infile)
@@ -851,6 +851,7 @@ class SeismicData():
         default_p_calctime = args['default_p_calctime']
 
         sublist = []
+        first_writing = False
         print(f"processing for {len(event.stations)} stations at {event.srctime}...")
 
         # load obsfile first if input is compiled
@@ -941,11 +942,12 @@ class SeismicData():
                     stream.filter('bandpass', freqmin=0.03, freqmax=0.05, corners=2, zerophase=True)
 
                 # save data
-                if not os.path.exists(savedir):
-                    try: os.makedirs(savedir)
+                if not os.path.exists(f"{savedir}/{event.srctime}"):
+                    try: os.makedirs(f"{savedir}/{event.srctime}")
                     except FileExistsError: pass # sometimes happens when folder created by another subprocess
-                    except: raise Exception(f"error when opening a new folder: {savedir}")
-                stream.write(f"{savedir}/{network_code}.{station_code}.LH.obspy", format="PICKLE")
+                    except: raise Exception(f"error when opening a new folder: {f"{savedir}/{event.srctime}"}")
+                if not first_writing: print(f"now writing first trace for {network_code}.{station_code} for event {event.srctime}"); first_writing = True
+                stream.write(f"{savedir}/{event.srctime}/{network_code}.{station_code}.LH.obspy", format="PICKLE")
                 
                 # load p info
                 p_status = None
@@ -1069,7 +1071,7 @@ class SeismicData():
         
         return sublist
 
-    def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5', overwrite_hdf=True, obsfile='separate', year_option=None, dir_ext='', cpu_number=None, respdir='/Users/sakon.n/git/phasepick/resp_catalog'):
+    def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5', overwrite_hdf=True, obsfile='separate', year_option=None, dir_ext='', cpu_number=None, respdir='/Users/jun/phasepick/resp_catalog'):
         if not shift: shift = (0,0)
         
         # load station list and build inventory for station response
@@ -1111,7 +1113,7 @@ class SeismicData():
         # create datalist by searching all records in the event table
         datalist = []
         print(f"preparing waveforms in parallel, #cpu={cpu_number or cpu_count()}.")
-        with ThreadPool(cpu_number or cpu_count()) as p: # event chucks
+        with get_context("spawn").ThreadPool(cpu_number or cpu_count()) as p: # event chucks
             batch_results = p.starmap(self._get_datalist_par,
                                       zip(self.events, repeat(common_args)))
         
@@ -1206,8 +1208,8 @@ class SeismicData():
         self.resplist = None
         self.working_freqencies = None
         autofetch = kwargs['autofetch'] if 'autofetch' in kwargs else False
-        self.station_list_path = kwargs['station_list_path'] if 'station_list_path' in kwargs else "/Users/sakon.n/git/phasepick/stalist.pkl"
-        self.response_list_path = kwargs['response_list_path'] if 'response_list_path' in kwargs else "/Users/sakon.n/git/phasepick/resp_catalog/resplist.pkl"
+        self.station_list_path = kwargs['station_list_path'] if 'station_list_path' in kwargs else "/Users/jun/phasepick/stalist.pkl"
+        self.response_list_path = kwargs['response_list_path'] if 'response_list_path' in kwargs else "/Users/jun/phasepick/resp_catalog/resplist.pkl"
         self.rawdata_dir = kwargs['rawdata_dir'] if 'rawdata_dir' in kwargs else "./rawdata_catalog3"
 
         # create event list from paths
@@ -1593,10 +1595,10 @@ if __name__ == '__main__':
 
     # best workflow:
     picker = Picker([], False,
-            station_list_path="/Users/sakon.n/git/phasepick/stalist2010.pkl",
-            response_list_path="/Users/sakon.n/git/phasepick/resp_catalog/resplist2010.pkl",
-            rawdata_dir="/Users/sakon.n/git/phasepick/rawdata_catalog3")
-    #picker.data.events = np.load('/Users/sakon.n/git/phasepick/gcmt.npy', allow_pickle=True)
+            station_list_path="/Users/jun/phasepick/stalist2010.pkl",
+            response_list_path="/Users/jun/phasepick/resp_catalog/resplist2010.pkl",
+            rawdata_dir="/Users/jun/phasepick/rawdata_catalog3")
+    #picker.data.events = np.load('/Users/jun/phasepick/gcmt.npy', allow_pickle=True)
     print("catalog loaded.")
 
     # -> simply download all GCMT cataloged LH data (prefered # of MP downloading sessions is 10? for IRIS) by data.fetch
@@ -1605,16 +1607,16 @@ if __name__ == '__main__':
     # -> make station list into stalist.pkl by `python stalist.py`
 
     # # -> sort response list into resplist.pkl by data.prepare_resplist()
-    # picker.data.prepare_resplist(respdir='/Users/sakon.n/git/phasepick/resp_catalog', overwrite=True)
+    # picker.data.prepare_resplist(respdir='/Users/jun/phasepick/resp_catalog', overwrite=True)
 
     # # -> read the final resplist.pkl to generate event-station datalist into data_fetched_catalog.pkl by data.prepare_event_table()
-    # picker.data.prepare_resplist(respdir='/Users/sakon.n/git/phasepick/resp_catalog')
-    # picker.data.prepare_event_table(cpu_number=16)
+    # picker.data.prepare_resplist(respdir='/Users/jun/phasepick/resp_catalog')
+    # picker.data.prepare_event_table(cpu_number=12)
     # picker.dump_dataset("./rawdata_catalog3/data_fetched_catalog_2010_3.pkl")
     # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
-    # picker.data.prepare_resplist(respdir='/Users/sakon.n/git/phasepick/resp_catalog')
+    # picker.data.prepare_resplist(respdir='/Users/jun/phasepick/resp_catalog')
     picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
-    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog3', cpu_number=16)
+    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog3', cpu_number=12)
     df = pd.DataFrame(datalist)
     df.to_csv('catalog_2010_preproc_3.csv', index=False)
 
@@ -1624,7 +1626,7 @@ if __name__ == '__main__':
     # # create dataset from scretch, fetch seismic data, and dump
     # picker = Picker()
     # picker.create_dataset([])
-    # catalog = np.load('/Users/sakon.n/git/phasepick/gcmt.npy',allow_pickle=True)
+    # catalog = np.load('/Users/jun/phasepick/gcmt.npy',allow_pickle=True)
     # picker.data.events = catalog
     # print("catalog loaded.")
     # picker.data.fetch(cpu_number=10)
