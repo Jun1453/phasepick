@@ -16,7 +16,7 @@ import warnings
 # import EQTransformer as eqt
 # from functools import partial
 from itertools import repeat
-from multiprocessing import Pool, Manager, cpu_count, get_context
+from multiprocessing import Pool, Process, Manager, cpu_count, get_context
 from multiprocessing.pool import ThreadPool
 from scipy.fft import rfft, irfft
 from obspy.clients.fdsn import Client
@@ -163,9 +163,9 @@ class InstrumentResponse():
         if len(station) == 3: station += '-'
 
         if start_end_times:
-            filename = f"/Users/jun/phasepick/resp.dir/{network}.{station}.{component}.{start_end_times}"
+            filename = f"/Users/sakon.n/git/phasepick/resp.dir/{network}.{station}.{component}.{start_end_times}"
         elif timestamp:
-            filenames = glob.glob(f"/Users/jun/phasepick/resp.dir/{network}.{station}.{component}.*")
+            filenames = glob.glob(f"/Users/sakon.n/git/phasepick/resp.dir/{network}.{station}.{component}.*")
             if len(filenames)==0: raise FileNotFoundError(f"response file not found for {network}.{station}.{component}")
             if type(timestamp) is not UTCDateTime: timestamp = UTCDateTime(timestamp)
             for search in filenames:
@@ -190,6 +190,89 @@ class InstrumentResponse():
         #     print(f'Response file not found: {start_end_times if start_end_times else timestamp} for {network}.{station}.{component}')
         # except FileNotFoundError:
         #     print('Response file not found:', filename)
+    
+def _prepare_event_table_spawn(event, args):
+    srctime = event.srctime
+    srctime.precision = 3
+    # starttime = srctime - 0.5 * 60 * 60
+    # endtime = srctime + 2 * 60 * 60
+    filename = f"{args['rawdata_dir']}/{srctime}.LH.obspy"
+
+    if (os.path.exists(filename)):
+        loaded_stream = read(filename)
+        print(f"preparing event {srctime} at {filename}")
+        processed_station = []
+        for trace in loaded_stream:    
+            try:
+                # process only for a new station
+                if not trace.stats.station in processed_station:
+                    station = trace.meta.station
+                    network = trace.meta.network
+                    station_str = f'{network}.{station}.LH'
+                    location_priority = ['', '00', None]
+                    for location_matching in location_priority:
+                        traces_matching = loaded_stream.select(station=station, location=location_matching)
+                        if len(traces_matching) == 3: break
+                        elif len(traces_matching) < 3: continue
+                        else:
+                            if len(traces_matching.select(channel='LHE'))>0 and len(traces_matching.select(channel='LHN'))>0:
+                                traces_matching.remove(traces_matching.select(channel='LH1'))
+                                traces_matching.remove(traces_matching.select(channel='LH2'))
+                                if len(traces_matching) == 3: break
+                            else:
+                                traces_matching.remove(traces_matching.select(channel='LHN'))
+                                traces_matching.remove(traces_matching.select(channel='LHE'))
+                                if len(traces_matching) == 3: break
+                    
+                    if location_matching is None:
+                        print(srctime, trace.stats.station, '... X (more or less than 3 LH components)')
+                    else:
+                        try:
+                            stations_matching = args['resplist'][station_str].find_obspy_station(UTCDateTime(srctime))
+                        # except: stations_matching = None
+                        # try:
+                            # if stations_matching == None: stations_matching = client.get_stations(level='station', network=network, station=station, starttime=starttime)[0][0]
+                            if stations_matching == None: raise Exception("no matched station")
+                            fetched = Station(stations_matching.code, stations_matching.latitude, stations_matching.longitude,
+                                                dist=locations2degrees(lat1=stations_matching.latitude, long1=stations_matching.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
+                                                azi=gps2dist_azimuth(lat1=stations_matching.latitude, lon1=stations_matching.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2],
+                                                loc=location_priority)
+                            fetched.labelnet['code'] = network
+                            fetched.isdataexist = True
+                            event.stations.append(fetched)
+                        except: print(srctime, trace.stats.station, '... X (failed setting up station)')
+            except:
+                    print(srctime, trace.stats.station, '... X (error in reading fetched traces)')
+            processed_station.append(trace.stats.station)
+
+        # time.sleep(0.2)
+        print(srctime, f"Loaded fetched traces for {len(event.stations)} stations")
+    else: print(f"cannot find event at {filename}")
+    return event
+
+
+def deconv_resp(rawdata, station_resps, reference_resps, working_freqencies=None):
+    if not working_freqencies: working_freqencies = np.linspace(1e-10, 0.5, 3000)
+    proceed = rawdata.copy()
+
+    # loop for all (three) components
+    for i in range(len(station_resps)):
+        # fast-fourier-transform the trace
+        fdomain_data = rfft(rawdata[i].data)
+
+        # get response array from frequencies
+        sta_resp_interp = station_resps[i].get_evalresp_response_for_frequencies(working_freqencies)
+        ref_resp_interp = reference_resps[i].get_evalresp_response_for_frequencies(working_freqencies)
+
+        # deconvolve and convolve the trace
+        fdomain_data = fdomain_data / sta_resp_interp * ref_resp_interp
+        fdomain_data[0] = complex(0, 0)
+
+        # inverse fast-fourier-transform the trace
+        deconvolved_data = irfft(fdomain_data)
+        proceed[i].data = deconvolved_data / max(deconvolved_data)
+
+    return proceed
 
 class SeismicData():
     def _findevent(self, target):
@@ -565,12 +648,17 @@ class SeismicData():
         
     def prepare_event_table(self, cpu_number=None):
         print("setting multiprocessing for preparing events...")
-        p = ThreadPool(cpu_number or cpu_count()) # set parallel fetch
+        # p = ThreadPool(cpu_number or cpu_count()) # set parallel fetch
         t0 = time.time()
-        self.events = p.map(self._prepare_event_table_par, self.events[32020:33872]) #only year 2010
+        # self.events = p.map(self._prepare_event_table_par, self.events[32020:33872]) #only year 2010
+        common_args = {'rawdata_dir': self.rawdata_dir, 'resplist': self.resplist}
+        with get_context('fork').Pool(cpu_number or cpu_count()) as p:
+        # with ThreadPool(cpu_number or cpu_count()) as p:
+            self.events = p.starmap(_prepare_event_table_spawn,
+                zip(self.events[32020:33872], repeat(common_args)))
         print(f"event table are prepared in {time.time()-t0} sec.")
 
-    def create_stalist(self, cpu_number=None, respdir='/Users/jun/phasepick/resp_catalog'): #WIP
+    def create_stalist(self, cpu_number=None, respdir='/Users/sakon.n/git/phasepick/resp_catalog'): #WIP
         loaded_station_count = 0
         event_count = 0
         if not self.resplist:
@@ -620,29 +708,6 @@ class SeismicData():
                     count += 1
         print(f"{count} files are linked to event list.")
 
-    def deconv_resp(self, rawdata, station_resps, reference_resps):
-        if not self.working_freqencies: self.working_freqencies = np.linspace(1e-10, 0.5, 3000)
-        proceed = rawdata.copy()
-
-        # loop for all (three) components
-        for i in range(len(station_resps)):
-            # fast-fourier-transform the trace
-            fdomain_data = rfft(rawdata[i].data)
-
-            # get response array from frequencies
-            sta_resp_interp = station_resps[i].get_evalresp_response_for_frequencies(self.working_freqencies)
-            ref_resp_interp = reference_resps[i].get_evalresp_response_for_frequencies(self.working_freqencies)
-
-            # deconvolve and convolve the trace
-            fdomain_data = fdomain_data / sta_resp_interp * ref_resp_interp
-            fdomain_data[0] = complex(0, 0)
-
-            # inverse fast-fourier-transform the trace
-            deconvolved_data = irfft(fdomain_data)
-            proceed[i].data = deconvolved_data / max(deconvolved_data)
-
-        return proceed
-
     def deconvolve(self, rawdata, station_components, reference_components):
         proceed = rawdata.copy()
 
@@ -689,6 +754,9 @@ class SeismicData():
         loaddir = args['loaddir']
         obsfilenames = args['obsfilenames']
         savedir = args['savedir']
+        resplist = args['resplist']
+        velocity_model = args['velocity_model']
+        default_p_calctime = args['default_p_calctime']
 
         # check basic arguments
         if obsfile == 'compiled':
@@ -740,6 +808,14 @@ class SeismicData():
                     
                 stream = read(obsfile_name)
                 stream = stream.select(station=trace.labelsta['name'], location=trace.labelsta['loc'])
+                if len(stream) > 3:
+                    if len(stream.select(channel='LHE'))>0 and len(stream.select(channel='LHN'))>0:
+                        stream.remove(stream.select(channel='LH1'))
+                        stream.remove(stream.select(channel='LH2'))
+                    else:
+                        stream.remove(stream.select(channel='LHN'))
+                        stream.remove(stream.select(channel='LHE'))
+                stream.sort()
             event_name = f"{trace.labelsta['name']}.{network_code}_{event.srctime.year:4d}{event.srctime.month:02d}{event.srctime.day:02d}{event.srctime.hour:02d}{event.srctime.minute:02d}{event.srctime.second:02d}_EV"
 
             # sanity check for all three component
@@ -778,12 +854,23 @@ class SeismicData():
                         # # deconvolve and convolve instrument response without obspy
                         # stream = self.deconvolve(rawdata=stream, station_components=station_responses, reference_components=reference_responses)
                         # deconvolve and convolve instrument response using obspy
-                        stream = self.deconv_resp(rawdata=stream,
-                                                  station_resps=[self.resplist['SR.GRFO.LH'].find_obspy_station(UTCDateTime("19830110")).select(channel=channel,time=UTCDateTime("19830110"))[0].response for channel in ["LHE", "LHN", "LHZ"]],
-                                                  reference_resps=reference_responses)
+                        obspy_station = resplist[f'{network_code}.{trace.labelsta["name"]}.LH'].find_obspy_station(event.srctime)
+                        if len(stream.select(channel="LHE"))>0 and len(stream.select(channel="LHN"))>0:
+                            channels = ["LHE", "LHN", "LHZ"]
+                            stream = deconv_resp(rawdata=stream, 
+                                                 station_resps=[obspy_station.select(channel=channel,time=event.srctime)[0].response for channel in channels],
+                                                 reference_resps=reference_responses)
+                        else:
+                            channels = ["LH2", "LH1", "LHZ"]
+                            stream = deconv_resp(rawdata=stream, 
+                                                 station_resps=[obspy_station.select(channel=channel,time=event.srctime)[0].response for channel in channels],
+                                                 reference_resps=reference_responses)
+                            stream[0].meta.channel = "LHE"
+                            stream[1].meta.channel = "LHN"
                         
-                        # calculate azimuth angle
-                        azimuth = gps2dist_azimuth(lat1=trace.labelsta['lat'], lon1=trace.labelsta['lon'], lat2=event.srcloc[0], lon2=event.srcloc[1])[2] if rotate is True else 180
+                        # load or calculate azimuth angle
+                        if rotate is False: azimuth = 180
+                        else: azimuth = gps2dist_azimuth(lat1=trace.labelsta['lat'], lon1=trace.labelsta['lon'], lat2=event.srcloc[0], lon2=event.srcloc[1])[2] if trace.labelsta['azi'] is None else trace.labelsta['azi']
                         # azimuth = gps2dist_azimuth(lat1=-7.913, lon1=110.523, lat2=-0.660, lon2=133.430)[2]
                         
                         # rotate to TRZ coordinate
@@ -811,8 +898,8 @@ class SeismicData():
                             is_calctim_defined = True
                     
                     if not is_calctim_defined:
-                        try: p_calctim0 = event.srctime + self.picker.model.get_travel_times(event.srcloc[2], trace.labelsta['dist'], ['P'])[0].time
-                        except: p_calctim0 = event.srctime + self.picker.default_p_calctime
+                        try: p_calctim0 = event.srctime + velocity_model.get_travel_times(event.srcloc[2], trace.labelsta['dist'], ['P'])[0].time
+                        except: p_calctim0 = event.srctime + default_p_calctime
 
                     # resampling
                     shift_range = random.randrange(shift[0],shift[1]+1)
@@ -952,7 +1039,7 @@ class SeismicData():
         print(f"preparing instrument {str(item[0])}")
         return (item[0], Instrument(station_str=item[0], event_records=item[1], respdir=respdir))
     
-    def prepare_resplist(self, respdir='/Users/jun/phasepick/resp_catalog', overwrite=False):
+    def prepare_resplist(self, respdir='/Users/sakon.n/git/phasepick/resp_catalog', overwrite=False):
         if overwrite or (not os.path.exists(self.response_list_path)):
             with open(self.station_list_path, 'rb') as infile:
                 stalist = pickle.load(infile)
@@ -967,7 +1054,7 @@ class SeismicData():
                 self.resplist = pickle.load(file)
             print("response list loaded.")
 
-    def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5', overwrite_hdf=True, obsfile='separate', year_option=None, dir_ext='', cpu_number=12, respdir='/Users/jun/phasepick/resp_catalog'):
+    def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5', overwrite_hdf=True, obsfile='separate', year_option=None, dir_ext='', cpu_number=None, respdir='/Users/sakon.n/git/phasepick/resp_catalog'):
         if not shift: shift = (0,0)
         
         # load station list and build inventory for station response
@@ -988,7 +1075,7 @@ class SeismicData():
 
             # create datalist by searching all record lists
             datalist = []
-            print(f"preparing waveforms in parallel, #cpu={cpu_number}.")
+            print(f"preparing waveforms in parallel, #cpu={cpu_number or cpu_count()}.")
 
             for event in self.events:
                 if year_option:
@@ -1019,11 +1106,15 @@ class SeismicData():
                     'loaddir': loaddir,
                     'obsfilenames': obsfilenames,
                     'savedir': savedir,
-                    'output': output
+                    'output': output,
+                    'resplist': self.resplist,
+                    'velocity_model': self.picker.model,
+                    'default_p_calctime': self.picker.default_p_calctime
                 }
 
                 # start parallel computing for preprocessing
-                with ThreadPool(cpu_number) as p:
+                # with ThreadPool(cpu_number or cpu_count()) as p:
+                with get_context("fork").Pool(cpu_number or cpu_count()) as p:
                     sublist = p.starmap(self._par_datalist,
                         zip(event.stations, repeat(common_args)))
             
@@ -1060,8 +1151,8 @@ class SeismicData():
         self.resplist = None
         self.working_freqencies = None
         autofetch = kwargs['autofetch'] if 'autofetch' in kwargs else False
-        self.station_list_path = kwargs['station_list_path'] if 'station_list_path' in kwargs else "/Users/jun/phasepick/stalist.pkl"
-        self.response_list_path = kwargs['response_list_path'] if 'response_list_path' in kwargs else "/Users/jun/phasepick/resp_catalog/resplist.pkl"
+        self.station_list_path = kwargs['station_list_path'] if 'station_list_path' in kwargs else "/Users/sakon.n/git/phasepick/stalist.pkl"
+        self.response_list_path = kwargs['response_list_path'] if 'response_list_path' in kwargs else "/Users/sakon.n/git/phasepick/resp_catalog/resplist.pkl"
         self.rawdata_dir = kwargs['rawdata_dir'] if 'rawdata_dir' in kwargs else "./rawdata_catalog3"
 
         # create event list from paths
@@ -1081,6 +1172,7 @@ class SeismicData():
 class Picker():
     def __init__(self, dataset_paths, dataset_as_folder=False, default_p_calctime=450, **kwargs):
         self.client = Client('IRIS')
+        self.model = TauPyModel(model="prem")
         self.station_list = None
         self.station_dict = None
         self.default_p_calctime = default_p_calctime
@@ -1446,10 +1538,10 @@ if __name__ == '__main__':
 
     # best workflow:
     picker = Picker([], False,
-            station_list_path="/Users/jun/phasepick/stalist2010.pkl",
-            response_list_path="/Users/jun/phasepick/resp_catalog/resplist2010.pkl",
-            rawdata_dir="/Users/jun/phasepick/rawdata_catalog3")
-    picker.data.events = np.load('/Users/jun/phasepick/gcmt.npy', allow_pickle=True)
+            station_list_path="/Users/sakon.n/git/phasepick/stalist2010.pkl",
+            response_list_path="/Users/sakon.n/git/phasepick/resp_catalog/resplist2010.pkl",
+            rawdata_dir="/Users/sakon.n/git/phasepick/rawdata_catalog3")
+    picker.data.events = np.load('/Users/sakon.n/git/phasepick/gcmt.npy', allow_pickle=True)
     print("catalog loaded.")
 
     # -> simply download all GCMT cataloged LH data (prefered # of MP downloading sessions is 10? for IRIS) by data.fetch
@@ -1458,13 +1550,15 @@ if __name__ == '__main__':
     # -> make station list into stalist.pkl by `python stalist.py`
 
     # # -> sort response list into resplist.pkl by data.prepare_resplist()
-    # picker.data.prepare_resplist(respdir='/Users/jun/phasepick/resp_catalog', overwrite=True)
+    # picker.data.prepare_resplist(respdir='/Users/sakon.n/git/phasepick/resp_catalog', overwrite=True)
 
-    # -> read the final resplist.pkl to generate event-station datalist into data_fetched_catalog.pkl by data.prepare_event_table()
-    picker.data.prepare_resplist(respdir='/Users/jun/phasepick/resp_catalog')
-    picker.data.prepare_event_table(cpu_number=36)
-    picker.dump_dataset("./rawdata_catalog3/data_fetched_catalog_2010_3.pkl")
+    # # -> read the final resplist.pkl to generate event-station datalist into data_fetched_catalog.pkl by data.prepare_event_table()
+    # picker.data.prepare_resplist(respdir='/Users/sakon.n/git/phasepick/resp_catalog')
+    # picker.data.prepare_event_table(cpu_number=16)
+    # picker.dump_dataset("./rawdata_catalog3/data_fetched_catalog_2010_3.pkl")
     # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
+    picker.data.prepare_resplist(respdir='/Users/sakon.n/git/phasepick/resp_catalog')
+    picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
     datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog3')
     df = pd.DataFrame(datalist)
     df.to_csv('catalog_2010_preproc_3.csv', index=False)
@@ -1475,7 +1569,7 @@ if __name__ == '__main__':
     # # create dataset from scretch, fetch seismic data, and dump
     # picker = Picker()
     # picker.create_dataset([])
-    # catalog = np.load('/Users/jun/phasepick/gcmt.npy',allow_pickle=True)
+    # catalog = np.load('/Users/sakon.n/git/phasepick/gcmt.npy',allow_pickle=True)
     # picker.data.events = catalog
     # print("catalog loaded.")
     # picker.data.fetch(cpu_number=10)
