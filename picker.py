@@ -857,14 +857,14 @@ class SeismicData():
         # load obsfile first if input is compiled
         if obsfile == 'compiled':
             obsfilenames = [f"{loaddir}/{event.srctime}.LH.obspy"]
-            stream = read(obsfilenames[0])
+            stream_org = read(obsfilenames[0])
 
         # loop for trace
         for trace_set in event.stations:
             # load obsfile now if input is not compiled
             if obsfile != 'compiled':
                 obsfilenames = glob.glob(f"{loaddir}/{event.srctime}/*{trace_set.labelsta['name']}.LH.obspy")
-                stream = read(obsfilenames[0])
+                stream_org = read(obsfilenames[0])
             
             network_code = trace_set.labelnet['code']
             station_code = trace_set.labelsta['name']
@@ -878,7 +878,7 @@ class SeismicData():
             if type(station_label['loc'] is list): # bug-handling
                 location_priority = ['', '00', None]
                 for location_matching in location_priority:
-                    traces_matching = stream.select(station=station_code, location=location_matching)
+                    traces_matching = stream_org.select(station=station_code, location=location_matching)
                     if len(traces_matching) == 3: break
                     elif len(traces_matching) > 3:
                         if len(traces_matching.select(channel='LHE'))>0 and len(traces_matching.select(channel='LHN'))>0:
@@ -891,7 +891,7 @@ class SeismicData():
                             if len(traces_matching) == 3: break
                 stream = traces_matching
             else:
-                stream = stream.select(station=station_code, location=station_label['loc'])
+                stream = stream_org.select(station=station_code, location=station_label['loc'])
                 if len(stream) > 3:
                     if len(stream.select(channel='LHE'))>0 and len(stream.select(channel='LHN'))>0:
                         stream.remove(stream.select(channel='LH1'))
