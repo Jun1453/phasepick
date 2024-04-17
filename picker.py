@@ -252,7 +252,7 @@ def _prepare_event_table_spawn(event, args):
 
 
 def deconv_resp(rawdata, station_resps, reference_resps, working_freqencies=None):
-    if not working_freqencies: working_freqencies = np.linspace(1e-10, 0.5, 3000)
+    if working_freqencies is None: working_freqencies = np.linspace(1e-10, 0.5, len(rfft(rawdata[0].data)))
     proceed = rawdata.copy()
 
     # loop for all (three) components
