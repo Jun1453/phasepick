@@ -945,7 +945,7 @@ class SeismicData():
                 if not os.path.exists(f"{savedir}/{event.srctime}"):
                     try: os.makedirs(f"{savedir}/{event.srctime}")
                     except FileExistsError: pass # sometimes happens when folder created by another subprocess
-                    except: raise Exception(f"error when opening a new folder: {f"{savedir}/{event.srctime}"}")
+                    except: raise Exception(f"error when opening a new folder: {savedir}/{event.srctime}")
                 if not first_writing: print(f"now writing first trace for {network_code}.{station_code} for event {event.srctime}"); first_writing = True
                 stream.write(f"{savedir}/{event.srctime}/{network_code}.{station_code}.LH.obspy", format="PICKLE")
                 
@@ -1113,7 +1113,7 @@ class SeismicData():
         # create datalist by searching all records in the event table
         datalist = []
         print(f"preparing waveforms in parallel, #cpu={cpu_number or cpu_count()}.")
-        with get_context("spawn").ThreadPool(cpu_number or cpu_count()) as p: # event chucks
+        with ThreadPool(cpu_number or cpu_count()) as p: # event chucks
             batch_results = p.starmap(self._get_datalist_par,
                                       zip(self.events, repeat(common_args)))
         
@@ -1616,7 +1616,7 @@ if __name__ == '__main__':
     # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
     # picker.data.prepare_resplist(respdir='/Users/jun/phasepick/resp_catalog')
     picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
-    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog3', cpu_number=12)
+    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog3', cpu_number=4)
     df = pd.DataFrame(datalist)
     df.to_csv('catalog_2010_preproc_3.csv', index=False)
 
