@@ -16,8 +16,8 @@ import warnings
 # import EQTransformer as eqt
 # from functools import partial
 from itertools import repeat
-from multiprocessing import Pool, Process, Manager, cpu_count, get_context
-from multiprocessing.pool import ThreadPool
+from multiprocessing import Manager, cpu_count, get_context
+from multiprocessing.pool import ThreadPool, Pool
 from scipy.fft import rfft, irfft
 from obspy.clients.fdsn import Client
 from obspy.core import UTCDateTime
@@ -332,223 +332,6 @@ class SeismicData():
                 else:
                     matchstation.records.append(nlrecord)
         return numNewEvents
-    
-    # def _fetch_par(self, event, skip_existing_events=False, skip_existing_stations=True):
-    #     srctime = event.srctime
-    #     srctime.precision = 3
-    #     starttime = fn_starttime_full(srctime)
-    #     endtime = fn_endtime_full(srctime)
-    #     # print(f"fetching {srctime}...")
-    #     # return
-
-    #     # savedir = f"./rawdata/{srctime}"
-        
-    #     # if (not (os.path.exists(savedir) and skip_existing_events)):
-
-    #     # find stations one by one according to the table
-    #     if len(event.stations) > 0:
-    #         savedir = f"./rawdata/{srctime}"
-    #         #if (not (os.path.exists(savedir) and skip_existing_events)):
-    #         if (False):
-    #             for station in event.stations:
-    #                 ## revise the following line 
-    #                 if not (glob.glob(f"{savedir}/*.{station.labelsta['name']}.LH.obspy") and skip_existing_stations):
-    #                     try:
-    #                         inv = self.client.get_stations(station=f"{station.labelsta['name']}", starttime=starttime, endtime=endtime)
-
-    #                     except:
-    #                         try:
-    #                             inv = self.client.get_stations(starttime=starttime, endtime=endtime, channel="LHZ,LHN,LHE",
-    #                                     minlatitude=station.labelsta['lat']-0.02, maxlatitude=station.labelsta['lat']+0.02,
-    #                                     minlongitude=station.labelsta['lon']-0.02, maxlongitude=station.labelsta['lon']+0.02)
-    #                         except:
-    #                             print(srctime, station.labelsta['name'], '... X (station not exists)')
-    #                             continue
-    #                     # print(inv.networks[0].code)
-    #                     for network in inv.networks:
-    #                         if network.code == "SY":
-    #                             inv.networks.remove(network); continue
-    #                         for station in network.stations:
-    #                             if len(station.channels) != 3:
-    #                                 network.stations.remove(station)
-    #                         if len(network.stations) == 0:
-    #                             inv.networks.remove(network)
-                        
-    #                     if len(inv.networks) > 0 :
-    #                         try:
-    #                             if not os.path.exists(savedir): os.makedirs(savedir)
-    #                             st_raw = self.client.get_waveforms(inv.networks[0].code, inv.networks[0].stations[0].code, "*", "LHZ,LHN,LHE", starttime, endtime, attach_response=True,
-    #                                 filename=f"{savedir}/{inv.networks[0].code}.{inv.networks[0].stations[0].code}.LH.obspy")
-    #                             print(srctime, f"{station.labelsta['name']} ({inv.networks[0].code}-{inv.networks[0].stations[0].code})")
-    #                             station.labelnet['code'] = inv.networks[0].code
-    #                             station.isdataexist = True
-
-    #                             # sleep or IRIS may cut down your connection
-    #                             time.sleep(1)
-    #                         except:
-    #                             print(srctime, f"{station.labelsta['name']} ({inv.networks[0].code}-{inv.networks[0].stations[0].code})", '... X (data not exists)')
-    #         return event
-
-    #     # when no stations are given, search for every availible
-    #     else:
-    #         # savedir = f"./rawdata_catalog/{srctime}"
-    #         filename = f"{self.rawdata_dir}/{srctime}.LH.obspy"
-    #         # fetch data if no file exist
-    #         #if (not (os.path.exists(filename) and skip_existing_events)):
-    #         if (True):
-    #             # # return event
-    #             # try:
-    #             #     inv = self.client.get_stations(starttime=starttime, endtime=endtime, channel="LHZ,LHN,LHE")
-    #             # except:
-    #             #     print(srctime, '... X (no available station exists)')
-    #             #     return
-
-    #             # for network in inv.networks:
-    #             #     if network.code == "SY":
-    #             #         inv.networks.remove(network)
-    #             #     for station in network.stations:
-    #             #         if len(station.channels) != 3:
-    #             #             network.stations.remove(station)
-    #             #     if len(network.stations) == 0:
-    #             #         inv.networks.remove(network)
-                
-    #             # if len(inv.networks) > 0 :
-    #             #     try:
-    #             #         self.client.get_waveforms("*", "*", "*", "LHZ,LHN,LHE", starttime, endtime, attach_response=True, filename=filename)
-    #             #     except:
-    #             #         print(srctime,  '... X (error in retrieving traces)')
-    #             #         return
-    #             print(f"start fetching for the event {srctime}")
-    #             #time.sleep(10); print(f"{srctime} foo:{self.resplist['foo']}"); return
-    #             client = Client("IRIS")
-    #             fetched_stream = client.get_waveforms("*", "*", "*", "LH?", starttime, endtime, attach_response=True)
-    #             for trace in fetched_stream.select(network="SY"): fetched_stream.remove(trace)
-    #             if len(fetched_stream)>0:
-    #                 fetched_stream.write(filename, format="PICKLE")
-                    
-    #                 station_list = []
-    #                 # fetched_stream = read(filename)
-    #                 for trace in fetched_stream:
-    #                     try:
-    #                         station = trace.meta.station
-    #                         # when processing for a new station
-    #                         if not trace.stats.station in station_list:
-    #                             # traces_selected = fetched_stream.select(station=trace.stats.station)
-    #                             # network = inv.select(station=trace.stats.station)[0]
-    #                             # station = network[0]
-    #                             network = trace.meta.network
-    #                             station_str = f'{network}.{station}.LH'
-
-    #                             # # ignore trace if the only component
-    #                             # if len(traces_selected) < 3:
-    #                             #     continue
-    #                             # # record location if all traces agree
-    #                             # elif len(traces_selected) == 3:
-    #                             #     if (traces_selected[0].stats.location==traces_selected[1].stats.location) and (traces_selected[1].stats.location==traces_selected[2].stats.location):
-    #                             #         location = traces_selected[0].stats.location
-    #                             #     else: continue
-    #                             # elif len(traces_selected) > 3:
-    #                             #     # reselect for location '' if more than 3 components
-    #                             #     traces_selected = fetched_stream.select(station=trace.stats.station, location='')
-    #                             #     if len(traces_selected) == 3: location = traces_selected[0].stats.location
-    #                             #     # reselect for location '00' if more than 3 components
-    #                             #     else:
-    #                             #         traces_selected = fetched_stream.select(station=trace.stats.station, location='00')
-    #                             #         if len(traces_selected) == 3: location = traces_selected[0].stats.location
-    #                             #         else: continue
-    #                             location_priority = ['', '00', '10', '20', None]
-    #                             for location_matching in location_priority:
-    #                                 traces_matching = fetched_stream.select(station=station, location=location_matching)
-    #                                 if len(traces_matching) == 3: break
-    #                                 elif len(traces_matching) > 3:
-    #                                     traces_matching.remove(traces_matching.select(channel='LH1'))
-    #                                     traces_matching.remove(traces_matching.select(channel='LH2'))
-    #                                     if len(traces_matching) == 3: break
-                                
-    #                             if location_matching is None:
-    #                                 print(srctime, trace.stats.station, '... X (more or less than 3 LH components)')
-    #                                 station_list.append(trace.stats.station)
-    #                             else:
-    #                                 # if station_str in self.resplist:
-    #                                 #     stations_matching = self.resplist[station_str].find_obspy_station(UTCDateTime(srctime))
-    #                                 # else: stations_matching = None
-    #                                 # if not stations_matching:
-    #                                 if True:
-    #                                     # stations_matching = download_inventory(client, f"{self.respdir}/{self.network_code}.{self.station_code}", network=network, station=station, starttime=starttime)[0][0]
-    #                                     stations_matching = client.get_stations(level='station', network=network, station=station, starttime=starttime)[0][0]
-    #                                     # stations_matching = self.client.get_stations(station=station, starttime=starttime, endtime=endtime, channel="LH?")[0][0]
-    #                                 fetched = Station(stations_matching.code, stations_matching.latitude, stations_matching.longitude,
-    #                                                     dist=locations2degrees(lat1=stations_matching.latitude, long1=stations_matching.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
-    #                                                     azi=gps2dist_azimuth(lat1=stations_matching.latitude, lon1=stations_matching.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2],
-    #                                                     loc=location_priority)
-    #                                 fetched.labelnet['code'] = network
-    #                                 fetched.isdataexist = True
-    #                                 event.stations.append(fetched)
-    #                                 station_list.append(trace.stats.station)
-                                
-    #                     except:
-    #                         print(srctime, trace.stats.station, '... X (error in reading fetched traces)')
-    #                         station_list.append(trace.stats.station)
-                    
-    #                 print(srctime, f"Fetched for {len(event.stations)} stations")
-
-    #                 # sleep or IRIS may cut down your connection
-    #                 time.sleep(0.2)
-                        
-    #                 # if not os.path.exists(savedir): os.makedirs(savedir)
-    #                 # for network in inv.networks:
-    #                 #     for station in network.stations:
-    #                 #         try:
-    #                 #             st_raw = self.client.get_waveforms(network.code, station.code, "*", "LHZ,LHN,LHE", starttime, endtime, attach_response=True,
-    #                 #                 filename=f"{savedir}/{network.code}.{station.code}.LH.obspy")
-    #                 #             fetched = Station(station.code, station.latitude, station.longitude,
-    #                 #                                 dist=locations2degrees(lat1=station.latitude, long1=station.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
-    #                 #                                 azi=gps2dist_azimuth(lat1=station.latitude, lon1=station.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2])
-    #                 #             fetched.labelnet['code'] = network.code
-    #                 #             fetched.isdataexist = True
-    #                 #             event.stations.append(fetched)
-    #                 #             print(srctime, f"Fetched ({network.code}-{station.code})")
-
-    #                 #             # sleep or IRIS may cut down your connection
-    #                 #             time.sleep(1)
-    #                 #         except FDSNNoDataException as e:
-    #                 #             print(srctime, f"{station.code} ({network.code}-{station.code})", '... X (data not exists)')
-    #                 #         except: 
-    #                 #             print(srctime, f"{station.code} ({network.code}-{station.code})", '... X (unknown issue)')
-    #             else:
-    #                 print(srctime, '... X (no available station exists)')
-    #         # load data and get station metadata
-    #         else:
-    #             # return event
-    #             # fetched_files = glob.glob(f"{savedir}/*.{station.labelsta['name']}.LH.obspy")
-    #             loaded_stream = read(filename)
-    #             station_list = []
-    #             for trace in loaded_stream:
-    #                 if not trace.stats.station in station_list:
-    #                     station = trace.meta.station
-    #                     network = trace.meta.network
-    #                     station_str = f'{network}.{station}.LH'
-    #                     try:
-    #                         # inv = self.client.get_stations(station=trace.stats.station, starttime=trace.stats.starttime, endtime=trace.stats.endtime, level="station")
-    #                         # fetched = Station(inv[0][0].code, inv[0][0].latitude, inv[0][0].longitude,
-    #                         #                 dist=locations2degrees(lat1=inv[0][0].latitude, long1=inv[0][0].longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
-    #                         #                 azi=gps2dist_azimuth(lat1=inv[0][0].latitude, lon1=inv[0][0].longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2])
-    #                         stations_matching = self.resplist[station_str].find_obspy_station(UTCDateTime(srctime))
-    #                         if not stations_matching: stations_matching = self.client.get_stations(station=station, starttime=starttime, endtime=endtime, channel="LH?")[0][0]
-    #                         fetched = Station(stations_matching.code, stations_matching.latitude, stations_matching.longitude,
-    #                                             dist=locations2degrees(lat1=stations_matching.latitude, long1=stations_matching.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
-    #                                             azi=gps2dist_azimuth(lat1=stations_matching.latitude, lon1=stations_matching.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2],
-    #                                             loc=location_priority)
-    #                         fetched.labelnet['code'] = network
-    #                         fetched.isdataexist = True
-    #                         event.stations.append(fetched)
-    #                     except:
-    #                         pass
-    #                         # print(srctime, trace.stats.station, '... X (failed loading)')
-    #                     station_list.append(trace.stats.station)
-    #             print(srctime, f"Loaded fetched traces for {len(event.stations)} stations")
-
-    #         return event
 
     def _get_srctime(self, srctime):
         srctime.precision = 3
@@ -597,7 +380,7 @@ class SeismicData():
                                 fetched = Station(stations_matching.code, stations_matching.latitude, stations_matching.longitude,
                                                     dist=locations2degrees(lat1=stations_matching.latitude, long1=stations_matching.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
                                                     azi=gps2dist_azimuth(lat1=stations_matching.latitude, lon1=stations_matching.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2],
-                                                    loc=location_priority)
+                                                    loc=location_matching)
                                 fetched.labelnet['code'] = network
                                 fetched.isdataexist = True
                                 event.stations.append(fetched)
@@ -1054,6 +837,238 @@ class SeismicData():
                 self.resplist = pickle.load(file)
             print("response list loaded.")
 
+    def _get_datalist_par(self, event, args) -> list:
+        obsfile = args['obsfile']
+        preprocess = args['preprocess']
+        resample = args['resample']
+        shift = args['shift']
+        rotate = args['rotate']
+        reference_responses = args['reference_responses']
+        loaddir = args['loaddir']
+        savedir = args['savedir']
+        resplist = args['resplist']
+        velocity_model = args['velocity_model']
+        default_p_calctime = args['default_p_calctime']
+
+        sublist = []
+        print(f"processing for {len(event.stations)} stations at {event.srctime}...")
+
+        # load obsfile first if input is compiled
+        if obsfile == 'compiled':
+            obsfilenames = [f"{loaddir}/{event.srctime}.LH.obspy"]
+            stream = read(obsfilenames[0])
+
+        # loop for trace
+        for trace_set in event.stations:
+            # load obsfile now if input is not compiled
+            if obsfile != 'compiled':
+                obsfilenames = glob.glob(f"{loaddir}/{event.srctime}/*{trace_set.labelsta['name']}.LH.obspy")
+                stream = read(obsfilenames[0])
+            
+            network_code = trace_set.labelnet['code']
+            station_code = trace_set.labelsta['name']
+            station_label = trace_set.labelsta
+            # obsfile_name = obsfilenames[0]
+
+            # network filter
+            if not network_code in ['AU', 'BR', 'DK', 'G', 'GE', 'GT', 'II', 'IM', 'IU', 'PS', 'SR']: continue
+
+            # select 3 components
+            if type(station_label['loc'] is list): # bug-handling
+                location_priority = ['', '00', None]
+                for location_matching in location_priority:
+                    traces_matching = stream.select(station=station_code, location=location_matching)
+                    if len(traces_matching) == 3: break
+                    elif len(traces_matching) > 3:
+                        if len(traces_matching.select(channel='LHE'))>0 and len(traces_matching.select(channel='LHN'))>0:
+                            traces_matching.remove(traces_matching.select(channel='LH1'))
+                            traces_matching.remove(traces_matching.select(channel='LH2'))
+                            if len(traces_matching) == 3: break
+                        else:
+                            traces_matching.remove(traces_matching.select(channel='LHN'))
+                            traces_matching.remove(traces_matching.select(channel='LHE'))
+                            if len(traces_matching) == 3: break
+                stream = traces_matching
+            else:
+                stream = stream.select(station=station_code, location=station_label['loc'])
+                if len(stream) > 3:
+                    if len(stream.select(channel='LHE'))>0 and len(stream.select(channel='LHN'))>0:
+                        stream.remove(stream.select(channel='LH1'))
+                        stream.remove(stream.select(channel='LH2'))
+                    else:
+                        stream.remove(stream.select(channel='LHN'))
+                        stream.remove(stream.select(channel='LHE'))
+                stream.sort()
+
+            # sanity check for all three component
+            if not (len(stream) == 3 and len(stream[0])*len(stream[1])*len(stream[2])>0 and np.isscalar(stream[0].data[0])): continue
+
+            # preprocessing
+            event_name = f"{station_code}.{network_code}_{event.srctime.year:4d}{event.srctime.month:02d}{event.srctime.day:02d}{event.srctime.hour:02d}{event.srctime.minute:02d}{event.srctime.second:02d}_EV"
+            print(f"preprocessing {event_name}...")
+
+            try:
+                # check array size for waveform data
+                for record in stream:
+                    if record.data.shape[0] <= 9000+20 and record.data.shape[0] > 9000: record.data = record.data[:9000]
+                    elif record.data.shape[0] > 9000+20: raise ValueError(f"Trace has too many samples: {str(record)}")
+                    elif record.data.shape[0] < 9000: raise ValueError(f"Trace has too few samples: {str(record)}")
+
+                # deconvolve and convolve instrument response using obspy
+                if preprocess is True:
+                    obspy_station = resplist[f'{network_code}.{station_code}.LH'].find_obspy_station(event.srctime)
+                    if len(stream.select(channel="LHE"))>0 and len(stream.select(channel="LHN"))>0:
+                        channels = ["LHE", "LHN", "LHZ"]
+                        stream = deconv_resp(rawdata=stream, 
+                                                station_resps=[obspy_station.select(channel=channel,time=event.srctime)[0].response for channel in channels],
+                                                reference_resps=reference_responses)
+                    else:
+                        channels = ["LH2", "LH1", "LHZ"]
+                        stream = deconv_resp(rawdata=stream, 
+                                                station_resps=[obspy_station.select(channel=channel,time=event.srctime)[0].response for channel in channels],
+                                                reference_resps=reference_responses)
+                        stream[0].meta.channel = "LHE"
+                        stream[1].meta.channel = "LHN"
+
+                # rotate to TRZ coordinate
+                if rotate:
+                    #load or calculate azimuth angle
+                    azimuth = gps2dist_azimuth(lat1=station_label['lat'], lon1=station_label['lon'], lat2=event.srcloc[0], lon2=event.srcloc[1])[2] if station_label['azi'] is None else station_label['azi']
+                    stream.rotate('NE->RT', back_azimuth=azimuth)
+                
+                # bandpass filter
+                if preprocess == 'bandpass':
+                    stream.filter('bandpass', freqmin=0.03, freqmax=0.05, corners=2, zerophase=True)
+
+                # save data
+                if not os.path.exists(savedir):
+                    try: os.makedirs(savedir)
+                    except FileExistsError: pass # sometimes happens when folder created by another subprocess
+                    except: raise Exception(f"error when opening a new folder: {savedir}")
+                stream.write(f"{savedir}/{network_code}.{station_code}.LH.obspy", format="PICKLE")
+                
+                # load p info
+                p_status = None
+                p_weight = None
+                p_travel_sec = None
+                is_calctim_defined = False
+
+                for record in trace_set.records:
+                    if record.phase == 'P':
+                        p_status = 'manual'
+                        p_weight = 1/record.error
+                        p_calctim0 = event.srctime + record.calctim
+                        p_obstim0 = event.srctime + record.obstim
+                        is_calctim_defined = True
+                
+                if not is_calctim_defined:
+                    try: p_calctim0 = event.srctime + velocity_model.get_travel_times(event.srcloc[2], station_label['dist'], ['P'])[0].time
+                    except: p_calctim0 = event.srctime + default_p_calctime
+
+                # resampling
+                shift_range = random.randrange(shift[0],shift[1]+1)
+                if resample != 0:
+                    shift_bit = random.randrange(resample)
+                    delta = 1/resample
+                    stream.trim(starttime=fn_starttime_train(p_calctim0+shift_range), endtime=fn_endtime_train(p_calctim0+shift_range+1))
+                    stream.interpolate(sampling_rate=resample, method='lanczos', a=20)
+                    if len(stream) == 3:
+                        stdshape = (int(1500*resample), 3)
+                        waveform_data = np.transpose([np.array(stream[0].data[shift_bit:], dtype=np.float32), np.array(stream[1].data[shift_bit:], dtype=np.float32), np.array(stream[2].data[shift_bit:], dtype=np.float32)]) 
+                        if waveform_data.shape[0] <= int(1520*resample) and waveform_data.shape[0] > int(1500*resample): waveform_data = waveform_data[:int(1500*resample),0:3]
+                else:
+                    shift_bit = 0
+                    delta = 1
+                    stream.trim(starttime=p_calctim0-100+shift_range, endtime=p_calctim0+1400+shift_range)
+                    stdshape = (1500, 3)
+                    if len(stream) == 3:
+                        waveform_data = np.transpose([np.array(stream[0].data, dtype=np.float64), np.array(stream[1].data, dtype=np.float64), np.array(stream[2].data, dtype=np.float64)]) 
+                        if waveform_data.shape[0] <= 1520 and waveform_data.shape[0] > 1500: waveform_data = waveform_data[:1500,0:3]
+                
+                # check for problematic values in array
+                waveform_data = waveform_data.astype(np.float32)
+                anynan = np.isnan(waveform_data).any()
+                # conditions = ((p_status or s_status) and waveform_data.shape==stdshape and not anynan)
+                # conditions = (p_status and s_status and waveform_data.shape==stdshape and not anynan) # conditions for training data
+                conditions = (waveform_data.shape==stdshape and not anynan) # conditions for raw data
+
+                if conditions:
+                    # load s info
+                    s_status = None
+                    s_weight = None
+                    s_travel_sec = None
+
+                    for record in trace_set.records:
+                        if record.phase == 'S':
+                            s_status = 'manual'
+                            s_weight = 1/record.error
+                            s_obstim0 = event.srctime + record.obstim
+
+                    # set up travel times and waveform info
+                    if p_status:
+                        p_travel_sec = p_obstim0 - fn_starttime_train(p_calctim0 + shift_range) - shift_bit * delta
+
+                    if s_status:
+                        s_travel_sec = s_obstim0 - fn_starttime_train(p_calctim0 + shift_range) - shift_bit * delta
+                        coda_end_sample = int((s_travel_sec-60)/delta)
+                        snr = (np.sum(abs(waveform_data[int((s_travel_sec-10)/delta):int((s_travel_sec+50)/delta),:]), axis=0) / (60/delta)) / (np.sum(abs(waveform_data[0:int(40/delta),:]), axis=0) / (40/delta))
+                    elif p_status:
+                        coda_end_sample = int((p_travel_sec+400)/delta)
+                        snr = (np.sum(abs(waveform_data[int((p_travel_sec+20)/delta):int((p_travel_sec+400)/delta),:]), axis=0) / (380/delta)) / (np.sum(abs(waveform_data[0:int(40/delta),:]), axis=0) / (40/delta)) 
+                    else:
+                        coda_end_sample = None
+                        snr = None
+                    
+                    # set up waveform attributes
+                    waveform_attrs = {
+                        'network_code': network_code,
+                        'receiver_code': station_code,
+                        'receiver_type': 'LH',
+                        'receiver_latitude': station_label['lat'], 
+                        'receiver_longitude': station_label['lon'], 
+                        'receiver_elevation_m': None, 
+                        'p_arrival_sample': int(p_travel_sec/delta) if p_status else None, 
+                        'p_status': p_status, 
+                        'p_weight': p_weight, 
+                        'p_travel_sec': p_travel_sec, 
+                        's_arrival_sample': int(s_travel_sec/delta) if s_status else None, 
+                        's_status': s_status, 
+                        's_weight': s_weight, 
+                        'source_id': 'None', 
+                        'source_origin_time': str(event.srctime), 
+                        'source_origin_uncertainty_sec': None, 
+                        'source_latitude':event.srcloc[0], 
+                        'source_longitude': event.srcloc[1], 
+                        'source_error_sec': None, 
+                        'source_gap_deg': None, 
+                        'source_horizontal_uncertainty_km': None, 
+                        'source_depth_km': event.srcloc[2], 
+                        'source_depth_uncertainty_km': None, 
+                        'source_magnitude': 0, 
+                        'source_magnitude_type': None, 
+                        'source_magnitude_author': None, 
+                        'source_mechanism_strike_dip_rake': None, 
+                        'source_distance_deg': station_label['dist'], 
+                        'source_distance_km': station_label['dist'] * 111.1, 
+                        'back_azimuth_deg': station_label['azi'], 
+                        'snr_db': snr, 
+                        'coda_end_sample': coda_end_sample, 
+                        'trace_start_time': str(event.srctime), 
+                        'trace_category': 'earthquake_local', 
+                        'trace_name': event_name
+                        }
+                    
+                    sublist.append({'data': waveform_data, 'attrs': waveform_attrs})
+
+            except UnboundLocalError:
+                print(f"Unbound local error for {obsfilenames[0]}: {e}")
+            except ValueError as e:
+                print(f"Value error for {obsfilenames[0]}: {e}")
+            except FileNotFoundError as e:
+                print(f"File-not-found error for {obsfilenames[0]}: {e}")
+        
+        return sublist
+
     def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5', overwrite_hdf=True, obsfile='separate', year_option=None, dir_ext='', cpu_number=None, respdir='/Users/sakon.n/git/phasepick/resp_catalog'):
         if not shift: shift = (0,0)
         
@@ -1067,70 +1082,110 @@ class SeismicData():
             reference_responses = [self.resplist['SR.GRFO.LH'].find_obspy_station(reference_datetime).select(channel=channel,time=reference_datetime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
 
         # set directory
-        loaddir = f'rawdata{dir_ext}' if preprocess else 'training'
+        loaddir = f'./rawdata{dir_ext}' if preprocess else f"./training{dir_ext}"
+        if preprocess=='bandpass': savedir = f"./training_bandpass{dir_ext}"
+        elif preprocess=='onlyrot': savedir = f"./training_onlyrot{dir_ext}"
+        elif preprocess: savedir = f"./training{dir_ext}"
 
-        # open new hdf5 database
+        # select events
+        for event in self.events:
+            event.srctime.precision = 3 
+            if year_option and (event.srctime.year != year_option): self.events.remove(event)
+            if (not overwrite_hdf) and os.path.exists(f"{savedir}/{event.srctime}"): self.events.remove(event)
+
+        # set up parameters for parallel computing
+        common_args = {
+            'obsfile': obsfile,
+            'preprocess': preprocess,
+            'resample': resample,
+            'shift': shift,
+            'rotate': rotate,
+            'reference_responses': reference_responses,
+            'loaddir': loaddir,
+            'savedir': savedir,
+            'resplist': self.resplist,
+            'velocity_model': self.picker.model,
+            'default_p_calctime': self.picker.default_p_calctime
+        }
+
+        # create datalist by searching all records in the event table
+        datalist = []
+        print(f"preparing waveforms in parallel, #cpu={cpu_number or cpu_count()}.")
+        with ThreadPool(cpu_number or cpu_count()) as p: # event chucks
+            batch_results = p.starmap(self._get_datalist_par,
+                                      zip(self.events, repeat(common_args)))
+        
+        # open new hdf5 database and io the results
         with h5py.File(output, 'w' if overwrite_hdf else 'a') as f:
             if overwrite_hdf: f.create_group("data")
-
-            # create datalist by searching all record lists
-            datalist = []
-            print(f"preparing waveforms in parallel, #cpu={cpu_number or cpu_count()}.")
-
-            for event in self.events:
-                if year_option:
-                    if event.srctime.year != year_option: continue
-                
-                if event.srctime.precision != 3: event.srctime.precision = 3
-                if preprocess=='bandpass': savedir = f"./training_bandpass{dir_ext}/{event.srctime}"
-                elif preprocess=='onlyrot': savedir = f"./training_onlyrot{dir_ext}/{event.srctime}"
-                elif preprocess: savedir = f"./training{dir_ext}/{event.srctime}"
-
-                if (not overwrite_hdf) and os.path.exists(savedir): continue
-                    
-                if obsfile == 'compiled': obsfilenames = [f"./{loaddir}/{event.srctime}.LH.obspy"]
-                else: obsfilenames = None
-
-                print(f"processing for {len(event.stations)} stations at {event.srctime}...")
-                
-                # set up parameters for parallel computing
-                sublist = []
-                common_args = {
-                    'event': event,
-                    'obsfile': obsfile,
-                    'preprocess': preprocess,
-                    'resample': resample,
-                    'shift': shift,
-                    'rotate': rotate,
-                    'reference_responses': reference_responses,
-                    'loaddir': loaddir,
-                    'obsfilenames': obsfilenames,
-                    'savedir': savedir,
-                    'output': output,
-                    'resplist': self.resplist,
-                    'velocity_model': self.picker.model,
-                    'default_p_calctime': self.picker.default_p_calctime
-                }
-
-                # start parallel computing for preprocessing
-                # with ThreadPool(cpu_number or cpu_count()) as p:
-                with get_context("fork").Pool(cpu_number or cpu_count()) as p:
-                    sublist = p.starmap(self._par_datalist,
-                        zip(event.stations, repeat(common_args)))
-            
-                # retreive data and attributes from each event
+            for sublist in batch_results:
                 for item in sublist:
-                    if item:
-                        dataset = f.create_dataset(f"data/{item['attrs']['trace_name']}", data=item['data'])
-                        for attr, val in item['attrs'].items():
-                            if not val is None: dataset.attrs[attr] = val
-                        item['attrs']['source_origin_time'] = UTCDateTime(item['attrs']['source_origin_time'])
-                        item['attrs']['trace_start_time'] = UTCDateTime(item['attrs']['trace_start_time'])
-                        item['attrs']['coda_end_sample'] = [[item['attrs']['coda_end_sample']]]
-                        datalist.append(item['attrs'])
-                print(f"All waveforms at {event.srctime} are done.")
+                    dataset = f.create_dataset(f"data/{item['attrs']['trace_name']}", data=item['data'])
+                    for attr, val in item['attrs'].items():
+                        if not val is None: dataset.attrs[attr] = val
+                    item['attrs']['source_origin_time'] = UTCDateTime(item['attrs']['source_origin_time'])
+                    item['attrs']['trace_start_time'] = UTCDateTime(item['attrs']['trace_start_time'])
+                    item['attrs']['coda_end_sample'] = [[item['attrs']['coda_end_sample']]]
+                    datalist.append(item['attrs'])
 
+        print(f"All waveforms at {event.srctime} are done.")
         return datalist
+
+            # # deprecrated
+            # for event in self.events:
+            #     if year_option:
+            #         if event.srctime.year != year_option: continue
+                
+            #     if event.srctime.precision != 3: event.srctime.precision = 3
+            #     if preprocess=='bandpass': savedir = f"./training_bandpass{dir_ext}/{event.srctime}"
+            #     elif preprocess=='onlyrot': savedir = f"./training_onlyrot{dir_ext}/{event.srctime}"
+            #     elif preprocess: savedir = f"./training{dir_ext}/{event.srctime}"
+
+            #     if (not overwrite_hdf) and os.path.exists(savedir): continue
+                    
+            #     if obsfile == 'compiled': obsfilenames = [f"./{loaddir}/{event.srctime}.LH.obspy"]
+            #     else: obsfilenames = None
+
+            #     print(f"processing for {len(event.stations)} stations at {event.srctime}...")
+                
+            #     # set up parameters for parallel computing
+            #     sublist = []
+            #     common_args = {
+            #         'event': event,
+            #         'obsfile': obsfile,
+            #         'preprocess': preprocess,
+            #         'resample': resample,
+            #         'shift': shift,
+            #         'rotate': rotate,
+            #         'reference_responses': reference_responses,
+            #         'loaddir': loaddir,
+            #         'obsfilenames': obsfilenames,
+            #         'savedir': savedir,
+            #         'output': output,
+            #         'resplist': self.resplist,
+            #         'velocity_model': self.picker.model,
+            #         'default_p_calctime': self.picker.default_p_calctime
+            #     }
+
+            #     # start parallel computing for preprocessing
+            #     # with ThreadPool(cpu_number or cpu_count()) as p:
+            #     with get_context("fork").Pool(cpu_number or cpu_count()) as p:
+            #         sublist = p.starmap(self._par_datalist,
+            #             zip(event.stations, repeat(common_args)))
+            
+            #     # retreive data and attributes from each event
+            #     for item in sublist:
+            #         if item:
+            #             dataset = f.create_dataset(f"data/{item['attrs']['trace_name']}", data=item['data'])
+            #             for attr, val in item['attrs'].items():
+            #                 if not val is None: dataset.attrs[attr] = val
+            #             item['attrs']['source_origin_time'] = UTCDateTime(item['attrs']['source_origin_time'])
+            #             item['attrs']['trace_start_time'] = UTCDateTime(item['attrs']['trace_start_time'])
+            #             item['attrs']['coda_end_sample'] = [[item['attrs']['coda_end_sample']]]
+            #             datalist.append(item['attrs'])
+            #     print(f"All waveforms at {event.srctime} are done.")
+
+        # return datalist
     
     def load_datalist_from_hdf5(self, hdf5_filename):
         with h5py.File(hdf5_filename, 'r') as f:
@@ -1541,7 +1596,7 @@ if __name__ == '__main__':
             station_list_path="/Users/sakon.n/git/phasepick/stalist2010.pkl",
             response_list_path="/Users/sakon.n/git/phasepick/resp_catalog/resplist2010.pkl",
             rawdata_dir="/Users/sakon.n/git/phasepick/rawdata_catalog3")
-    picker.data.events = np.load('/Users/sakon.n/git/phasepick/gcmt.npy', allow_pickle=True)
+    #picker.data.events = np.load('/Users/sakon.n/git/phasepick/gcmt.npy', allow_pickle=True)
     print("catalog loaded.")
 
     # -> simply download all GCMT cataloged LH data (prefered # of MP downloading sessions is 10? for IRIS) by data.fetch
@@ -1557,9 +1612,9 @@ if __name__ == '__main__':
     # picker.data.prepare_event_table(cpu_number=16)
     # picker.dump_dataset("./rawdata_catalog3/data_fetched_catalog_2010_3.pkl")
     # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
-    picker.data.prepare_resplist(respdir='/Users/sakon.n/git/phasepick/resp_catalog')
+    # picker.data.prepare_resplist(respdir='/Users/sakon.n/git/phasepick/resp_catalog')
     picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
-    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog3')
+    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog3', cpu_number=16)
     df = pd.DataFrame(datalist)
     df.to_csv('catalog_2010_preproc_3.csv', index=False)
 
