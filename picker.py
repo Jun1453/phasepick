@@ -809,7 +809,7 @@ class SeismicData():
                         #     dataset.attrs['source_magnitude'] = 0
                         #     dataset.attrs['receiver_type'] = 'LH'
                         #     return {'network_code': network_code, 'receiver_code': trace.labelsta['name'], 'receiver_type': 'LH', 'receiver_latitude': trace.labelsta['lat'], 'receiver_longitude': trace.labelsta['lon'], 'receiver_elevation_m': None, 'p_arrival_sample': int(p_travel_sec/delta) if p_status else None, 'p_status': p_status, 'p_weight': p_weight, 'p_travel_sec': p_travel_sec, 's_arrival_sample': int(s_travel_sec/delta) if s_status else None, 's_status': s_status, 's_weight': s_weight, 'source_id': None, 'source_origin_time': event.srctime, 'source_origin_uncertainty_sec': None, 'source_latitude':event.srcloc[0], 'source_longitude': event.srcloc[1], 'source_error_sec': None, 'source_gap_deg': None, 'source_horizontal_uncertainty_km': None, 'source_depth_km': event.srcloc[2], 'source_depth_uncertainty_km': None, 'source_magnitude': None, 'source_magnitude_type': None, 'source_magnitude_author': None, 'source_mechanism_strike_dip_rake': None, 'source_distance_deg': trace.labelsta['dist'], 'source_distance_km': trace.labelsta['dist'] * 111.1, 'back_azimuth_deg': trace.labelsta['azi'], 'snr_db': snr, 'coda_end_sample': [[coda_end_sample]], 'trace_start_time': event.srctime, 'trace_category': 'earthquake_local', 'trace_name': event_name}
-                except UnboundLocalError:
+                except UnboundLocalError as e:
                     print(f"Unbound local error for {obsfile_name}: {e}")
                 except ValueError as e:
                     print(f"Value error for {obsfile_name}: {e}")
@@ -878,6 +878,7 @@ class SeismicData():
             # load proceesed file if exists
             if not overwrite_event and os.path.exists(processed_filename):
                 stream = read(processed_filename)
+                # print(f"using loaded {event_name}")
                 
             # prepare proprocessing if not
             else: 
@@ -912,7 +913,7 @@ class SeismicData():
                 if not (len(stream) == 3 and len(stream[0])*len(stream[1])*len(stream[2])>0 and np.isscalar(stream[0].data[0])): continue
 
                 # preprocessing
-                print(f"preprocessing {event_name}...")
+                # print(f"preprocessing {event_name}...")
                 try:
                     # check array size for waveform data
                     for record in stream:
@@ -992,6 +993,7 @@ class SeismicData():
                         stdshape = (int(1500*resample), 3)
                         waveform_data = np.transpose([np.array(stream[0].data[shift_bit:], dtype=np.float32), np.array(stream[1].data[shift_bit:], dtype=np.float32), np.array(stream[2].data[shift_bit:], dtype=np.float32)]) 
                         if waveform_data.shape[0] <= int(1520*resample) and waveform_data.shape[0] > int(1500*resample): waveform_data = waveform_data[:int(1500*resample),0:3]
+                    else: raise ValueError("stream should have just 3 components")
                 else:
                     shift_bit = 0
                     delta = 1
@@ -1000,6 +1002,7 @@ class SeismicData():
                     if len(stream) == 3:
                         waveform_data = np.transpose([np.array(stream[0].data, dtype=np.float64), np.array(stream[1].data, dtype=np.float64), np.array(stream[2].data, dtype=np.float64)]) 
                         if waveform_data.shape[0] <= 1520 and waveform_data.shape[0] > 1500: waveform_data = waveform_data[:1500,0:3]
+                    else: raise ValueError("stream should have just 3 components")
                 
                 # check for problematic values in array
                 waveform_data = waveform_data.astype(np.float32)
@@ -1076,7 +1079,7 @@ class SeismicData():
                     
                     sublist.append({'data': waveform_data, 'attrs': waveform_attrs})
 
-            except UnboundLocalError:
+            except UnboundLocalError as e:
                 print(f"Unbound local error for {event_name}: {e}")
             except ValueError as e:
                 print(f"Value error for {event_name}: {e}")
@@ -1630,7 +1633,7 @@ if __name__ == '__main__':
     # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
     # picker.data.prepare_resplist(respdir='/Users/jun/phasepick/resp_catalog')
     picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
-    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog3', cpu_number=4)
+    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog3', cpu_number=6)
     df = pd.DataFrame(datalist)
     df.to_csv('catalog_2010_preproc_3.csv', index=False)
 
