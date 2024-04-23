@@ -289,7 +289,7 @@ def _get_datalist_par(event, args) -> list:
         processed_filename = f"{savedir}/{event.srctime}/{network_code}.{station_code}.LH.obspy"
 
         # network filter
-        if not network_code in ['AU', 'BR', 'DK', 'G', 'GE', 'GT', 'II', 'IM', 'IU', 'PS', 'SR']: continue
+        # if not network_code in ['AU', 'BR', 'DK', 'G', 'GE', 'GT', 'II', 'IM', 'IU', 'PS', 'SR']: continue
 
         # load proceesed file if exists
         if not overwrite_event and os.path.exists(processed_filename):
