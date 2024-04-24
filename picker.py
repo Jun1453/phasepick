@@ -1587,7 +1587,7 @@ class SeismicData():
                     
                     sublist.append({'data': waveform_data, 'attrs': waveform_attrs})
 
-            except UnboundLocalError:
+            except UnboundLocalError as e:
                 print(f"Unbound local error for {event_name}: {e}")
             except ValueError as e:
                 print(f"Value error for {event_name}: {e}")
