@@ -38,9 +38,10 @@ fn_starttime_train = lambda srctime: srctime - 250
 fn_endtime_train = lambda srctime: srctime + 1250
 
 class Event():
-    def __init__(self, time: UTCDateTime, lat, lon, dep):
+    def __init__(self, time: UTCDateTime, lat, lon, dep, mag=None):
         self.srctime = time
         self.srcloc = (lat, lon, dep)
+        self.magnitude = mag
         self.stations = []
     def __eq__(self, target):
         return (self.srctime == target.srctime) & (self.srcloc == target.srcloc)
@@ -1596,7 +1597,7 @@ class SeismicData():
         print(f"finished preparing for {len(event.stations)} stations at {event.srctime}.")
         return sublist
 
-    def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5', overwrite_hdf=True, overwrite_event=False, obsfile='separate', year_option=None, dir_ext='', cpu_number=None, respdir='./resp_catalog'):
+    def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5', overwrite_hdf=True, overwrite_event=False, obsfile='separate', year_option=None, cutoff_magnitude=None, dir_ext='', cpu_number=None, respdir='./resp_catalog'):
         if not shift: shift = (0,0)
         
         # load station list and build inventory for station response
@@ -1618,6 +1619,7 @@ class SeismicData():
         for event in self.events:
             event.srctime.precision = 3 
             if year_option and (event.srctime.year != year_option): self.events.remove(event)
+            if cutoff_magnitude and (event.magnitude < cutoff_magnitude): self.events.remove(event)
 
         # set up parameters for parallel computing
         common_args = {
@@ -1828,12 +1830,20 @@ class Picker():
         "create dataset from scretch"
         self.data = SeismicData(self, self.client, table_filenames, dataset_as_folder, **kwargs)
 
-    def load_dataset(self, filename, verbose=False):
+    def load_dataset(self, filename, verbose=False, magnitude_ref=None):
         "load existing dataset"
         with open(filename, 'rb') as file:
             loaddata = pickle.load(file)
         self.data = SeismicData(self, self.client, [])
         self.data.events = loaddata.events
+        if magnitude_ref:
+            if type(magnitude_ref) is str: magnitude_ref = np.load(magnitude_ref, allow_pickle=True)
+            for event in self.data.events:
+                matched_event = None
+                for searched_event in magnitude_ref:
+                    if searched_event == event: matched_event = searched_event; break
+                event.magnitude = matched_event.magnitude
+
         # debug message
         if verbose: 
             printphase = [record.phase for record in self.data.events[0].stations[3].records]
@@ -2206,7 +2216,7 @@ if __name__ == '__main__':
     # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
     # picker.data.prepare_resplist(respdir='./resp_catalog')
     picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
-    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, dir_ext='_catalog3', cpu_number=8)
+    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, cutoff_magnitude=5.5, dir_ext='_catalog3', cpu_number=8)
     df = pd.DataFrame(datalist)
     df.to_csv('catalog_2010_preproc_3.csv', index=False)
 
