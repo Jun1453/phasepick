@@ -1712,7 +1712,8 @@ class SeismicData():
                 for el in l:
                     if isinstance(el, list): yield from flatten_list(el)
                     else: yield el
-            for item in flatten_list(batch_results):
+            flatten_results = flatten_list(batch_results)
+            for item in flatten_results:
                 dataset = f.create_dataset(f"data/{item['attrs']['trace_name']}", data=item['data'])
                 for attr, val in item['attrs'].items():
                     if not val is None: dataset.attrs[attr] = val
@@ -1721,7 +1722,7 @@ class SeismicData():
                 item['attrs']['coda_end_sample'] = [[item['attrs']['coda_end_sample']]]
                 datalist.append(item['attrs'])
 
-        print(f"All waveforms by {event.srctime} are done.")
+        print(f"All {len(flatten_results)} waveforms from {len(self.events)} events by {event.srctime} are done.")
         return datalist
 
             # # deprecrated
