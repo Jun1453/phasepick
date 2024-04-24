@@ -1641,7 +1641,7 @@ class SeismicData():
         # t0 = time.time()
         # with ThreadPool(cpu_number or cpu_count()) as p: # event chucks
         #     batch_results = p.starmap(_get_datalist_par,
-        #                               zip(self.events, repeat(common_args)))
+        #                               zip(self.events[:10], repeat(common_args)))
         # # batch_results = [_get_datalist_par(event, common_args) for event in self.events[:48]]
         # print(f"test run finished in {time.time()-t0} sec")
 
@@ -1674,21 +1674,23 @@ class SeismicData():
             return results
         
         datalist = []
-        worker_number = ((cpu_number or cpu_count()) // 2 ) * 2
-        print(f"preparing waveforms in parallel, #worker={worker_number}.")
+        worker_number = (cpu_number or cpu_count())//2
+        print(f"preparing waveforms in parallel, #worker={worker_number*2}.")
         t0 = time.time()
-        with ThreadPoolExecutor(max_workers=worker_number//2) as executor:
-            threads = [None] * (worker_number//2)
+        with ThreadPoolExecutor(max_workers=worker_number) as executor:
+            threads = [None] * (worker_number)
             def split_array(a, n):
                 k, m = divmod(len(a), n)
                 return [a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n)]
-            input_pool = split_array(picker.data.events, worker_number//2)
-            for thread_index in range(worker_number//2):
+            input_pool = split_array(picker.data.events, worker_number)
+            for thread_index in range(worker_number):
                 thread_input = input_pool[thread_index]
                 threads[thread_index] = executor.submit(_datalist_while_reading_obspy, thread_input, common_args)
 
-        batch_results = [threads[thread_index].result() for thread_index in range(worker_number//2)]
+        batch_results = [threads[thread_index].result() for thread_index in range(worker_number)]
         print(f"test run finished in {time.time()-t0} sec")
+
+        ### 
         
         # open new hdf5 database and io the results
         # with h5py.File(output, 'w' if overwrite_hdf else 'a') as f:
@@ -1717,7 +1719,7 @@ class SeismicData():
                 item['attrs']['coda_end_sample'] = [[item['attrs']['coda_end_sample']]]
                 datalist.append(item['attrs'])
 
-        print(f"All waveforms at {event.srctime} are done.")
+        print(f"All waveforms by {event.srctime} are done.")
         return datalist
 
             # # deprecrated
@@ -2185,8 +2187,9 @@ if __name__ == '__main__':
             station_list_path="./stalist2010.pkl",
             response_list_path="./resp_catalog/resplist2010.pkl",
             rawdata_dir="./rawdata_catalog3")
+    print("picker created.")
     #picker.data.events = np.load('./gcmt.npy', allow_pickle=True)
-    print("catalog loaded.")
+    # print("catalog loaded.")
 
     # -> simply download all GCMT cataloged LH data (prefered # of MP downloading sessions is 10? for IRIS) by data.fetch
     # picker.data.fetch(cpu_number=10)
