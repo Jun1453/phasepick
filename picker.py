@@ -1613,7 +1613,9 @@ class SeismicData():
         results = [None] * len(events)
         loaddir = common_args['loaddir']
         event_already_read = events[0]
+        t0 = time.time()
         stream_org = read(f"{loaddir}/{event_already_read.srctime}.LH.obspy")
+        print(f"finish loading {event_to_read.srctime} in {(time.time()-t0):.04f} sec, now processing...")
 
         def read_and_replace(event_to_read):
             t0 = time.time()
