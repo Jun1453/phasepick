@@ -1615,7 +1615,7 @@ class SeismicData():
         event_already_read = events[0]
         t0 = time.time()
         stream_org = read(f"{loaddir}/{event_already_read.srctime}.LH.obspy")
-        print(f"finish loading {event_to_read.srctime} in {(time.time()-t0):.04f} sec, now processing...")
+        print(f"finish loading {event_already_read.srctime} in {(time.time()-t0):.04f} sec, now processing...")
 
         def read_and_replace(event_to_read):
             t0 = time.time()
@@ -1689,6 +1689,8 @@ class SeismicData():
         
         datalist = []
         worker_number = (cpu_number or cpu_count())
+        shuffled_events = picker.data.events.copy()
+        random.shuffle(shuffled_events)
         print(f"preparing waveforms in parallel, #worker={worker_number}.")
         t0 = time.time()
         with ProcessPoolExecutor(max_workers=worker_number) as executor:
@@ -1696,7 +1698,7 @@ class SeismicData():
             def split_array(a, n):
                 k, m = divmod(len(a), n)
                 return [a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n)]
-            input_pool = split_array(picker.data.events, worker_number)
+            input_pool = split_array(shuffled_events, worker_number)
             for thread_index in range(worker_number):
                 thread_input = input_pool[thread_index]
                 threads[thread_index] = executor.submit(self._datalist_while_reading_obspy, thread_input, common_args)
