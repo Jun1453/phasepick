@@ -1607,6 +1607,32 @@ class SeismicData():
         
         print(f"finished preparing for {len(event.stations)} stations at {event.srctime}.")
         return sublist
+        
+    # create datalist by searching all records in the event table
+    def _datalist_while_reading_obspy(self, events, common_args):
+        results = [None] * len(events)
+        loaddir = common_args['loaddir']
+        event_already_read = events[0]
+        stream_org = read(f"{loaddir}/{event_already_read.srctime}.LH.obspy")
+
+        def read_and_replace(event_to_read):
+            t0 = time.time()
+            stream_org = read(f"{loaddir}/{event_to_read.srctime}.LH.obspy")
+            print(f"finish loading {event_to_read.srctime} in {(time.time()-t0):.04f} sec, now processing...")
+            return stream_org
+        
+        for index in range(len(events)-1):
+            event_to_read = events[index+1]
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                thread1 = executor.submit(self._get_datalist_noread, event_already_read, stream_org, common_args)
+                thread2 = executor.submit(read_and_replace, event_to_read)
+
+            results[index] = thread1.result()
+            stream_org = thread2.result()
+            event_already_read = event_to_read
+        
+        results[-1] = self._get_datalist_noread(event_already_read, stream_org, common_args)
+        return results
 
     def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5', overwrite_hdf=True, overwrite_event=False, obsfile='separate', year_option=None, cutoff_magnitude=None, dir_ext='', cpu_number=None, respdir='./resp_catalog'):
         if not shift: shift = (0,0)
@@ -1658,33 +1684,6 @@ class SeismicData():
         # # batch_results = [_get_datalist_par(event, common_args) for event in self.events[:48]]
         # print(f"test run finished in {(time.time()-t0):.04f} sec")
 
-
-        
-        # create datalist by searching all records in the event table
-        def _datalist_while_reading_obspy(events, common_args):
-            results = [None] * len(events)
-            loaddir = common_args['loaddir']
-            event_already_read = events[0]
-            stream_org = read(f"{loaddir}/{event_already_read.srctime}.LH.obspy")
-
-            def read_and_replace(event_to_read):
-                t0 = time.time()
-                stream_org = read(f"{loaddir}/{event_to_read.srctime}.LH.obspy")
-                print(f"finish loading {event_to_read.srctime} in {(time.time()-t0):.04f} sec, now processing...")
-                return stream_org
-            
-            for index in range(len(events)-1):
-                event_to_read = events[index+1]
-                with ThreadPoolExecutor(max_workers=2) as executor:
-                    thread1 = executor.submit(self._get_datalist_noread, event_already_read, stream_org, common_args)
-                    thread2 = executor.submit(read_and_replace, event_to_read)
-
-                results[index] = thread1.result()
-                stream_org = thread2.result()
-                event_already_read = event_to_read
-            
-            results[-1] = self._get_datalist_noread(event_already_read, stream_org, common_args)
-            return results
         
         datalist = []
         worker_number = (cpu_number or cpu_count())
@@ -1698,7 +1697,7 @@ class SeismicData():
             input_pool = split_array(picker.data.events, worker_number)
             for thread_index in range(worker_number):
                 thread_input = input_pool[thread_index]
-                threads[thread_index] = executor.submit(_datalist_while_reading_obspy, thread_input, common_args)
+                threads[thread_index] = executor.submit(self._datalist_while_reading_obspy, thread_input, common_args)
 
         batch_results = [threads[thread_index].result() for thread_index in range(worker_number)]
         print(f"test run finished in {(time.time()-t0):.04f} sec")
@@ -1846,7 +1845,7 @@ class Picker():
         "load existing dataset"
         with open(filename, 'rb') as file:
             loaddata = pickle.load(file)
-        self.data = SeismicData(self, self.client, [])
+        # self.data = SeismicData(self, self.client, [])
         self.data.events = loaddata.events
         if magnitude_ref:
             if type(magnitude_ref) is str: magnitude_ref = np.load(magnitude_ref, allow_pickle=True)
