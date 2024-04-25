@@ -28,6 +28,7 @@ from obspy.signal.invsim import simulate_seismometer, evalresp_for_frequencies
 from obspy.clients.fdsn.header import FDSNNoDataException
 from obspy.core.util.deprecation_helpers import ObsPyDeprecationWarning
 from concurrent.futures import ThreadPoolExecutor
+from objectsize import show_objects_size
 
 # if len(sys.argv)==2: log = open(sys.argv[1], "w"); sys.stdout = log; sys.stderr = log
 warnings.simplefilter('ignore', category=ObsPyDeprecationWarning)
@@ -78,23 +79,26 @@ class Record():
         self.obstim = obstim
         self.calctim = calctim
 
-def download_inventory(client, savepath, **kwargs):
-    inv = client.get_stations(level='RESP', **kwargs)
-    startdate = inv[0][0].start_date
-    enddate = inv[0][0].end_date or UTCDateTime("30010101")
-    inv.write(f"{savepath}.{startdate.year}.{startdate.julday:03}.{startdate.hour:02}.{enddate.year}.{enddate.julday:03}.{enddate.hour:02}", format="STATIONXML")
-    return inv
-
 class Instrument():
-    def find_obspy_station(self, datetime=None):
+
+    def download_inventory(savepath, station_str, **kwargs) -> dict:
+        client = Client("IRIS")
+        inv = client.get_stations(level='RESP', **kwargs)
+        startdate = inv[0][0].start_date
+        enddate = inv[0][0].end_date or UTCDateTime("30010101")
+        output_filename = f"{savepath}/{station_str}.{startdate.year}.{startdate.julday:03}.{startdate.hour:02}.{enddate.year}.{enddate.julday:03}.{enddate.hour:02}"
+        inv.write(output_filename, format="STATIONXML")
+        return {'filename': output_filename, 'start_date': startdate, 'end_date': enddate}
+    
+    def find_obspy_station(self, datetime=None, return_instance=True):
         """This function returns a dictionary of station objects with all available responses that cover the given timestamp."""
         if type(datetime) is str: datetime = UTCDateTime(datetime)
 
         # get timestamp from first response of each set in the response inventory
-        for station in self.resp_inventory:
+        for station_dict in self.resp_inventory:
             # return responses if found in resp_inventory
-            if datetime > station.start_date and (not station.end_date or datetime < station.end_date):
-                return station
+            if datetime > station_dict['start_date'] and (not station_dict['end_date'] or datetime < station_dict['end_date']):
+                return read_inventory(station_dict['filename'])[0][0] if return_instance else station_dict
 
         # download responses if not found in resp_inventory
         try:
@@ -102,9 +106,9 @@ class Instrument():
             # startdate = inv[0][0].start_date
             # enddate = inv[0][0].end_date or UTCDateTime("30010101")
             # inv.write(f"{self.respdir}/{self.network_code}.{self.station_code}.{startdate.year}.{startdate.julday:03}.{startdate.hour:02}.{enddate.year}.{enddate.julday:03}.{enddate.hour:02}", format="STATIONXML")
-            inv = download_inventory(self.client, f"{self.respdir}/{self.network_code}.{self.station_code}", network=self.network_code, station=self.station_code, starttime=datetime)
-            self.resp_inventory.append(inv[0][0])
-            return inv[0][0]
+            station_dict = self.download_inventory(self.respdir, f"{self.network_code}.{self.station_code}", network=self.network_code, station=self.station_code, starttime=datetime)
+            self.resp_inventory.append(station_dict)
+            return read_inventory(station_dict['filename'])[0][0] if return_instance else station_dict
         except:
             print(f"No data: {self.network_code}.{self.station_code} {datetime}")
             return None
@@ -121,16 +125,24 @@ class Instrument():
         # return resp_dict
 
     def add_event(self, datetime_str):
-        self.resp4record[datetime_str] = self.find_obspy_station(datetime_str)
+        self.resp4record[str(datetime_str)] = self.find_obspy_station(datetime_str, return_instance=False)
+
+    def prepare_inventory(self, filenames):
+        inventory = []
+        for filename in filenames:
+            inv = read_inventory(filename)
+            startdate = inv[0][0].start_date
+            enddate = inv[0][0].end_date or UTCDateTime("30010101")
+            inventory.append({'filename': filename, 'start_date': startdate, 'end_date': enddate})
+        return inventory
 
     def __init__(self, station_str=str, event_records=list, respdir=str):
         self.respdir = respdir
         if not os.path.exists(self.respdir): os.mkdir(self.respdir)
         #print(station_str)
         self.network_code, self.station_code, _ = station_str.split('.')
-        self.client = Client("IRIS")
         self.resp4record = {}
-        self.resp_inventory = [read_inventory(filename)[0][0] for filename in glob.glob(f"{self.respdir}/{self.network_code}.{self.station_code}.*")]
+        self.resp_inventory = self.prepare_inventory(glob.glob(f"{self.respdir}/{self.network_code}.{self.station_code}.*"))
 
         # self.sampling_rate = None
         # self.starttime = None
@@ -151,7 +163,7 @@ class Instrument():
         for datetime_str in event_records: self.add_event(datetime_str)
 
     def __repr__(self):
-        return f"{self.network_code}.{self.station_code}: "+', '.join([f"{sta.start_date.year}.{sta.start_date.julday:03}.{sta.start_date.hour:02}.{(sta.end_date.year if sta.end_date else 3001)}.{(sta.end_date.julday if sta.end_date else 1):03}.{(sta.end_date.hour if sta.end_date else 0):02}" for sta in self.resp_inventory])
+        return f"{self.network_code}.{self.station_code}: "+', '.join([f"{sta['start_date'].year}.{sta['start_date'].julday:03}.{sta['start_date'].hour:02}.{(sta['end_date'].year if sta['end_date'] else 3001)}.{(sta['end_date'].julday if sta['end_date'] else 1):03}.{(sta['end_date'].hour if sta['end_date'] else 0):02}" for sta in self.resp_inventory])
         
 
 class InstrumentResponse():
@@ -2193,7 +2205,7 @@ if __name__ == '__main__':
     # best workflow:
     picker = Picker([], False,
             station_list_path="./stalist2010.pkl",
-            response_list_path="./resp_catalog/resplist2010.pkl",
+            response_list_path="./resp_catalog/resplist2010_lite.pkl",
             rawdata_dir="./rawdata_catalog3")
     #picker.data.events = np.load('./gcmt.npy', allow_pickle=True)
     print("catalog loaded.")
@@ -2206,16 +2218,16 @@ if __name__ == '__main__':
     # # -> sort response list into resplist.pkl by data.prepare_resplist()
     # picker.data.prepare_resplist(respdir='./resp_catalog', overwrite=True)
 
-    # # -> read the final resplist.pkl to generate event-station datalist into data_fetched_catalog.pkl by data.prepare_event_table()
-    # picker.data.prepare_resplist(respdir='./resp_catalog')
+    # -> read the final resplist.pkl to generate event-station datalist into data_fetched_catalog.pkl by data.prepare_event_table()
+    picker.data.prepare_resplist(respdir='./resp_catalog')
     # picker.data.prepare_event_table(cpu_number=12)
     # picker.dump_dataset("./rawdata_catalog3/data_fetched_catalog_2010_3.pkl")
-    # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
-    # picker.data.prepare_resplist(respdir='./resp_catalog')
-    picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
-    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, cutoff_magnitude=5.5, dir_ext='_catalog3', cpu_number=8)
-    df = pd.DataFrame(datalist)
-    df.to_csv('catalog_2010_preproc_3.csv', index=False)
+    # # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
+    # # picker.data.prepare_resplist(respdir='./resp_catalog')
+    # picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
+    # datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, cutoff_magnitude=5.5, dir_ext='_catalog3', cpu_number=8)
+    # df = pd.DataFrame(datalist)
+    # df.to_csv('catalog_2010_preproc_3.csv', index=False)
 
     # -> prepare directory for prediction by picker.prepare_catalog()
     # -> run predition with EQTransfomer in JupyterNotebook
