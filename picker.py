@@ -692,7 +692,7 @@ class SeismicData():
         # self.events = p.map(self._fetch_par, self.events[32020:33872]) #only year 2010
         # self.events = p.map(self._fetch_par_spawn, self.events[32020:32056]) #only year 2010
         # self.events = p.starmap(self._prepare_resplist_par, zip(self.events[32020:33872], repeat(False)))
-        print(f"fetching finished in {time.time()-t0} sec.")
+        print(f"fetching finished in {(time.time()-t0):.04f} sec.")
         
     def prepare_event_table(self, cpu_number=None):
         print("setting multiprocessing for preparing events...")
@@ -704,7 +704,7 @@ class SeismicData():
         # with ThreadPool(cpu_number or cpu_count()) as p:
             self.events = p.starmap(_prepare_event_table_spawn,
                 zip(self.events[32020:33872], repeat(common_args)))
-        print(f"event table are prepared in {time.time()-t0} sec.")
+        print(f"event table are prepared in {(time.time()-t0):.04f} sec.")
 
     def create_stalist(self, cpu_number=None, respdir='./resp_catalog'): #WIP
         loaded_station_count = 0
@@ -1375,7 +1375,7 @@ class SeismicData():
         # if obsfile == 'compiled':
         #     t0 = time.time()
         #     stream_org = read(f"{loaddir}/{event.srctime}.LH.obspy")
-        #     print(f"finish loading {event.srctime} in {time.time()-t0} sec, now processing...")
+        #     print(f"finish loading {event.srctime} in {(time.time()-t0):.04f} sec, now processing...")
         if obsfile != 'compiled':
             raise Exception("obsfile must be compiled in noread method")
 
@@ -1656,7 +1656,7 @@ class SeismicData():
         #     batch_results = p.starmap(_get_datalist_par,
         #                               zip(self.events[:10], repeat(common_args)))
         # # batch_results = [_get_datalist_par(event, common_args) for event in self.events[:48]]
-        # print(f"test run finished in {time.time()-t0} sec")
+        # print(f"test run finished in {(time.time()-t0):.04f} sec")
 
 
         
@@ -1670,7 +1670,7 @@ class SeismicData():
             def read_and_replace(event_to_read):
                 t0 = time.time()
                 stream_org = read(f"{loaddir}/{event_to_read.srctime}.LH.obspy")
-                print(f"finish loading {event_to_read.srctime} in {time.time()-t0} sec, now processing...")
+                print(f"finish loading {event_to_read.srctime} in {(time.time()-t0):.04f} sec, now processing...")
                 return stream_org
             
             for index in range(len(events)-1):
@@ -1701,7 +1701,7 @@ class SeismicData():
                 threads[thread_index] = executor.submit(_datalist_while_reading_obspy, thread_input, common_args)
 
         batch_results = [threads[thread_index].result() for thread_index in range(worker_number)]
-        print(f"test run finished in {time.time()-t0} sec")
+        print(f"test run finished in {(time.time()-t0):.04f} sec")
 
         ### 
         
