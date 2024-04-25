@@ -27,7 +27,7 @@ from obspy.geodetics.base import gps2dist_azimuth, locations2degrees
 from obspy.signal.invsim import simulate_seismometer, evalresp_for_frequencies
 from obspy.clients.fdsn.header import FDSNNoDataException
 from obspy.core.util.deprecation_helpers import ObsPyDeprecationWarning
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 # if len(sys.argv)==2: log = open(sys.argv[1], "w"); sys.stdout = log; sys.stderr = log
 warnings.simplefilter('ignore', category=ObsPyDeprecationWarning)
@@ -1687,10 +1687,10 @@ class SeismicData():
             return results
         
         datalist = []
-        worker_number = (cpu_number or cpu_count())//2
-        print(f"preparing waveforms in parallel, #worker={worker_number*2}.")
+        worker_number = (cpu_number or cpu_count())
+        print(f"preparing waveforms in parallel, #worker={worker_number}.")
         t0 = time.time()
-        with ThreadPoolExecutor(max_workers=worker_number) as executor:
+        with ProcessPoolExecutor(max_workers=worker_number) as executor:
             threads = [None] * (worker_number)
             def split_array(a, n):
                 k, m = divmod(len(a), n)
