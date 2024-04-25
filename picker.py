@@ -28,7 +28,6 @@ from obspy.signal.invsim import simulate_seismometer, evalresp_for_frequencies
 from obspy.clients.fdsn.header import FDSNNoDataException
 from obspy.core.util.deprecation_helpers import ObsPyDeprecationWarning
 from concurrent.futures import ThreadPoolExecutor
-from objectsize import show_objects_size
 
 # if len(sys.argv)==2: log = open(sys.argv[1], "w"); sys.stdout = log; sys.stderr = log
 warnings.simplefilter('ignore', category=ObsPyDeprecationWarning)
@@ -2218,16 +2217,16 @@ if __name__ == '__main__':
     # # -> sort response list into resplist.pkl by data.prepare_resplist()
     # picker.data.prepare_resplist(respdir='./resp_catalog', overwrite=True)
 
-    # -> read the final resplist.pkl to generate event-station datalist into data_fetched_catalog.pkl by data.prepare_event_table()
-    picker.data.prepare_resplist(respdir='./resp_catalog')
+    # # -> read the final resplist.pkl to generate event-station datalist into data_fetched_catalog.pkl by data.prepare_event_table()
+    # picker.data.prepare_resplist(respdir='./resp_catalog')
     # picker.data.prepare_event_table(cpu_number=12)
     # picker.dump_dataset("./rawdata_catalog3/data_fetched_catalog_2010_3.pkl")
-    # # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
-    # # picker.data.prepare_resplist(respdir='./resp_catalog')
-    # picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
-    # datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, cutoff_magnitude=5.5, dir_ext='_catalog3', cpu_number=8)
-    # df = pd.DataFrame(datalist)
-    # df.to_csv('catalog_2010_preproc_3.csv', index=False)
+    # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
+    # picker.data.prepare_resplist(respdir='./resp_catalog')
+    picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
+    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, cutoff_magnitude=5.5, dir_ext='_catalog3', cpu_number=8)
+    df = pd.DataFrame(datalist)
+    df.to_csv('catalog_2010_preproc_3.csv', index=False)
 
     # -> prepare directory for prediction by picker.prepare_catalog()
     # -> run predition with EQTransfomer in JupyterNotebook
