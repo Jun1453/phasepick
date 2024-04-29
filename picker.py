@@ -2230,14 +2230,17 @@ if __name__ == '__main__':
     # picker.data.prepare_resplist(respdir='./resp_catalog')
     # picker.data.prepare_event_table(cpu_number=12)
     # picker.dump_dataset("./rawdata_catalog3/data_fetched_catalog_2010_3.pkl")
-    # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
-    # picker.data.prepare_resplist(respdir='./resp_catalog')
-    picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
-    datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, cutoff_magnitude=5.5, dir_ext='_catalog3', cpu_number=8)
-    df = pd.DataFrame(datalist)
-    df.to_csv('catalog_2010_preproc_3.csv', index=False)
+    
+    # # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
+    # # picker.data.prepare_resplist(respdir='./resp_catalog')
+    # picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
+    # datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3_re.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, cutoff_magnitude=5.5, dir_ext='_catalog3', cpu_number=8)
+    # df = pd.DataFrame(datalist)
+    # df.to_csv('catalog_2010_preproc_3.csv', index=False)
 
     # -> prepare directory for prediction by picker.prepare_catalog()
+    picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
+    picker.prepare_catalog('./training_catalog3', './catalog3_stnflt_preproc', './catalog3_stnflt_hdfs', 10)
     # -> run predition with EQTransfomer in JupyterNotebook
 
     # # create dataset from scretch, fetch seismic data, and dump
