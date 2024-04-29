@@ -23,11 +23,17 @@ AlphaPK_*/
 hmsl_*/
 *_pred/
 *_pred_*/
+*_hdfs/
+*_preproc/
 *backups
 *_old
 rawdata_catalog*
 resp_catalog
+training_catalog
 training_catalog2
+training_catalog3
+2010-07-26T23:31:07.200Z/
+2010-01-01T02:22:27.100Z.LH.obspy
 
 # table
 training*.csv
