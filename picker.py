@@ -552,8 +552,9 @@ class SeismicData():
             raise Exception("obsfile must be `compiled` or `mass` in noread method")
         
         if len(event.stations) == 0:
-            print(f"loading station xml files for {event.srctime}...")
-            for stationxml in glob.glob(f"{loaddir}/{UTCDateTime(event.srctime, precision=6)}/stations/*.xml"):
+            xml_directory = f"{loaddir}/{UTCDateTime(event.srctime, precision=6)}/stations"
+            print(f"loading station xml files for {event.srctime} at {xml_directory}...")
+            for stationxml in glob.glob(f"{xml_directory}/*.xml"):
                 network = read_inventory(stationxml)[0]; station = network[0]
                 # build station list
                 location_matched, _ = find_location(station)
@@ -839,6 +840,7 @@ class SeismicData():
         elif preprocess=='onlyrot': savedir = f"./training_onlyrot{dir_ext}"
         elif preprocess: savedir = f"./training{dir_ext}"
 
+        self.events = self.events[33872:33872+45]
         # select events
         def event_checked(event) -> bool:
             return False if (year_option and (event.srctime.year != year_option)) or (cutoff_magnitude and (event.magnitude < cutoff_magnitude)) else True
@@ -1381,7 +1383,7 @@ if __name__ == '__main__':
         dir_ext='_catalog_mass',
         overwrite_hdf=True,
         output='./catalog_2011_preproc.hdf5',
-        cpu_number=8
+        cpu_number=10
     )
     df = pd.DataFrame(datalist)
     df.to_csv('catalog_2011_preproc.csv', index=False)    
