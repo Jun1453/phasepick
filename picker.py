@@ -968,11 +968,13 @@ class SeismicData():
     
 
 class Picker():
-    def __init__(self, dataset_paths, dataset_as_folder=False, default_p_calctime=450, **kwargs):
+    def __init__(self, dataset_paths, dataset_as_folder=False, default_p_calctime=450, stationlist_method="event_table", target_year=None, **kwargs):
         self.client = Client('IRIS')
         self.model = TauPyModel(model="prem")
         self.station_list = None
         self.station_dict = None
+        self.stationlist_method = stationlist_method
+        self.target_year = target_year
         self.default_p_calctime = default_p_calctime
         self.create_dataset(dataset_paths, dataset_as_folder, **kwargs)
 
@@ -1004,8 +1006,8 @@ class Picker():
         with open(filename, 'wb') as file:
             pickle.dump(self.data, file, pickle.HIGHEST_PROTOCOL)
 
-    def get_stationlist(self, method="event_table", target_year="", target_dir=None):
-        if method == "event_table":
+    def get_stationlist(self):
+        if self.stationlist_method == "event_table":
             station_list = []
             station_dict = {}
             for event in self.data.events:
@@ -1020,7 +1022,8 @@ class Picker():
             station_list = []
             station_dict = {}
             for event in self.data.events:
-                search_path = f"{target_dir}/{target_year}*.obspy"
+                search_path = f"{self.waveform_dir}/{self.target_year}*.obspy"
+                print(search_path)
                 for filename in glob.glob(search_path):
                     station_code = filename.split("/")[-1].split(".")[1] 
                     if not station_code in station_list:
@@ -1272,7 +1275,7 @@ class Picker():
 
         if self.station_dict is None or self.station_list is None:
             print("generating station list...")
-            self.get_stationlist(method="directory", target_year=2011, target_dir="training_catalog_mass/")
+            self.get_stationlist(target_dir=waveform_dir)
 
         self.model = TauPyModel(model="prem")
         self.data_track = dict()
@@ -1364,9 +1367,12 @@ if __name__ == '__main__':
 
     # best workflow:
     picker = Picker([], False,
-            station_list_path=None,#"./stalist2010.pkl",
+            station_list_path="./stalist2010.pkl",
             response_list_path="./resp_catalog/resplist2010_lite.pkl",
-            rawdata_dir="./rawdata_catalog3")
+            rawdata_dir="./rawdata_catalog3",
+            target_year=2011,
+            stationlist_method="directory"
+            )
     print("picker created.")
 
     picker.data.events = list(np.load('./gcmt_mw.npy', allow_pickle=True))
@@ -1398,7 +1404,6 @@ if __name__ == '__main__':
     
     ################################################################
     # B: download events with mass downloader
-    target_year = 2011
     # call mass downloader 'waveformget'
 
     # # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
@@ -1420,7 +1425,7 @@ if __name__ == '__main__':
 
     # -> prepare directory for prediction by picker.prepare_catalog()
     # picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
-    picker.prepare_catalog('./training_catalog_mass', f'./catalog_{target_year}_stnflt_preproc', f'./catalog_{target_year}_stnflt_hdfs', 10)
+    picker.prepare_catalog('./training_catalog_mass', f'./catalog_{picker.target_year}_stnflt_preproc', f'./catalog_{picker.target_year}_stnflt_hdfs', 10)
     # -> run predition with EQTransfomer in JupyterNotebook
 
     # # create dataset from scretch, fetch seismic data, and dump
