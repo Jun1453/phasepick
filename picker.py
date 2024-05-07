@@ -1031,8 +1031,7 @@ class Picker():
                         station_list.append(station_code)
                         inv = read_inventory(filename)
                         station_dict[station_code] = Station(station_code, inv[0][0].latitude, inv[0][0].longitude,
-                                    dist=locations2degrees(lat1=inv[0][0].latitude, long1=inv[0][0].longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
-                                    azi=None, loc=None)
+                                    dist=None, azi=None, loc=None)
             self.station_list = station_list
             self.station_dict = station_dict
             return self.station_list, self.station_dict
@@ -1055,7 +1054,7 @@ class Picker():
         return st
     
     # def _prepare_picking_par(self, station_code, overlap=0, obsfile='separate'):
-    def _prepare_picking_par(self, station_code, overlap=0, obsfile='separate'):
+    def _prepare_picking_par(self, station_code, overlap=0, obsfile='mass'):
         output_name = station_code
         station = self.station_dict[station_code]
         
@@ -1076,7 +1075,7 @@ class Picker():
         if obsfile=='separate':
             filenames = glob.glob(f'{self.waveform_dir}/*/*.{station_code}.*') #[join(station, ev) for ev in listdir(station) if ev.split("/")[-1] != ".DS_Store"];
         elif obsfile=='mass':
-            filenames = glob.glob(f'{self.waveform_dir}/*/waveforms/*.{station_code}.*')
+            filenames = glob.glob(f'{self.waveform_dir}/*/*.{station_code}.*')
         else:
             filenames = glob.glob(f'{self.waveform_dir}/*.{station_code}.*')
             # filenames = glob.glob(f'{self.waveform_dir}/2010*.{station_code}.*')
@@ -1091,7 +1090,7 @@ class Picker():
             st = read(filename, debug_headers=True)
             component_num = len(st)
 
-            if obsfile=='separate':
+            if obsfile=='separate' or obsfile=='mass':
                 if component_num == 3:
                     count_chuncks += 1; c3 += 1
                     org_samplingRate = st[0].stats.sampling_rate
@@ -1122,9 +1121,15 @@ class Picker():
                     for event in self.data.events:
                         if event.srctime == target_srctime:
                             ref_trace = event._findstation(station)
-                            print(p_calctim = self.model.get_travel_times(event.srcloc[2], ref_trace.labelsta['dist'], ['P'])[0].time)
+                            if obsfile == 'separate':
+                                ref_trace = event._findstation(station)
+                                dist = ref_trace.labelsta['dist']
+                            else:
+                                sta = read_inventory(f"{self.data.rawdata_dir}/{UTCDateTime(event.srctime, precision=6)}/stations/*{station_code}.xml")[0][0]
+                                dist = locations2degrees(lat1=sta.latitude, long1=sta.longitude, lat2=event.srcloc[0], long2=event.srcloc[1])
                             try:
-                                p_calctim = self.model.get_travel_times(event.srcloc[2], ref_trace.labelsta['dist'], ['P'])[0].time
+                                p_calctim = self.model.get_travel_times(event.srcloc[2], dist, ['P'])[0].time
+                                # p_calctim = self.model.get_travel_times(event.srcloc[2], ref_trace.labelsta['dist'], ['P'])[0].time
                                 print("Using calculated P arrival window for", output_name, filename)
                             except:
                                 print("Using default P arrival window for", output_name, filename)
@@ -1195,9 +1200,15 @@ class Picker():
                     p_calctim = self.default_p_calctime
                     for event in self.data.events:
                         if event.srctime == target_srctime:
-                            ref_trace = event._findstation(station)
+                            if obsfile == 'compiled':
+                                ref_trace = event._findstation(station)
+                                dist = ref_trace.labelsta['dist']
+                            else:
+                                sta = read_inventory(f"{self.data.rawdata_dir}/{UTCDateTime(event.srctime, precision=6)}/stations/*{station_code}.xml")[0][0]
+                                dist = locations2degrees(lat1=sta.latitude, long1=sta.longitude, lat2=event.srcloc[0], long2=event.srcloc[1])
+                            print(p_calctim = self.model.get_travel_times(event.srcloc[2], dist, ['P'])[0].time)
                             try:
-                                p_calctim = self.model.get_travel_times(event.srcloc[2], ref_trace.labelsta['dist'], ['P'])[0].time
+                                p_calctim = self.model.get_travel_times(event.srcloc[2], dist, ['P'])[0].time
                                 print("Using calculated P arrival window for", output_name, filename)
                             except:
                                 print("Using default P arrival window for", output_name, filename)
