@@ -1271,7 +1271,8 @@ class Picker():
         self.repfile = open(os.path.join(preproc_dir,"prepare_report.txt"), 'w')
 
         if self.station_dict is None or self.station_list is None:
-            self.get_stationlist(method="directory")
+            print("generating station list...")
+            self.get_stationlist(method="directory", target_year=2011, target_dir="training_catalog_mass/")
 
         self.model = TauPyModel(model="prem")
         self.data_track = dict()
