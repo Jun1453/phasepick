@@ -21,11 +21,12 @@ from multiprocessing.pool import ThreadPool, Pool
 from scipy.fft import rfft, irfft
 from obspy.clients.fdsn import Client
 from obspy.core import UTCDateTime
-from obspy import read, read_inventory
+from obspy import read, read_inventory, Stream
 from obspy.taup import TauPyModel
 from obspy.geodetics.base import gps2dist_azimuth, locations2degrees
 from obspy.signal.invsim import simulate_seismometer, evalresp_for_frequencies
 from obspy.clients.fdsn.header import FDSNNoDataException
+from obspy.io.mseed import InternalMSEEDError
 from obspy.core.util.deprecation_helpers import ObsPyDeprecationWarning
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
@@ -594,7 +595,13 @@ class SeismicData():
             else: 
                 # load obsfile now if waveforms are mass downloaded mseed
                 if obsfile == 'mass':
-                    stream_org = read(f"{loaddir}/{UTCDateTime(event.srctime, precision=6)}/waveforms/{network_code}.{station_code}.*.mseed")
+                    try: stream_org = read(f"{loaddir}/{UTCDateTime(event.srctime, precision=6)}/waveforms/{network_code}.{station_code}.*.mseed")
+                    except InternalMSEEDError as e:
+                        print(f"Corrputed mseed in {event_name}: {e}, trying to read individually...") 
+                        stream_org = Stream()
+                        for filename in glob.glob(f"{loaddir}/{UTCDateTime(event.srctime, precision=6)}/waveforms/{network_code}.{station_code}.*.mseed"):
+                            try: stream_org.append(read(filename)[0])
+                            except: pass
                 # select 3 components
                 if type(station_label['loc'] is list): # bug-handling
                     _, stream = find_location(stream_org, station_code)
