@@ -38,6 +38,15 @@ fn_endtime_full = lambda srctime: srctime + 2 * 60 * 60
 fn_starttime_train = lambda srctime: srctime - 250
 fn_endtime_train = lambda srctime: srctime + 1250
 
+def split_array(a, n):
+    k, m = divmod(len(a), n)
+    return [a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n)]
+
+def flatten_list(l):
+    for el in l:
+        if isinstance(el, list): yield from flatten_list(el)
+        else: yield el
+
 class Event():
     def __init__(self, time: UTCDateTime, lat, lon, dep, mag=None):
         self.srctime = time
@@ -531,14 +540,12 @@ class SeismicData():
 
                 if len(traces_matching) == 3: return (location_matching, traces_matching)
                 elif len(traces_matching) > 3:
-                    if len(traces_matching.select(channel='LHE'))>0 and len(traces_matching.select(channel='LHN'))>0:
-                        traces_matching.remove(traces_matching.select(channel='LH1'))
-                        traces_matching.remove(traces_matching.select(channel='LH2'))
-                        if len(traces_matching) == 3: return (location_matching, traces_matching)
+                    if len(traces_matching.select(channel='LH[EN]'))>0:
+                        if len(traces_matching.select(channel='LH[ENZ]')) == 3:
+                            return (location_matching, traces_matching.select(channel='LH[ENZ]'))
                     else:
-                        traces_matching.remove(traces_matching.select(channel='LHN'))
-                        traces_matching.remove(traces_matching.select(channel='LHE'))
-                        if len(traces_matching) == 3: return (location_matching, traces_matching)
+                        if len(traces_matching.select(channel='LH[12Z]')) == 3:
+                            return (location_matching, traces_matching.select(channel='LH[12Z]'))
             return (None, None)
 
         # print(f"preparing for {len(event.stations)} stations at {event.srctime}...")
@@ -817,7 +824,7 @@ class SeismicData():
     def _datalist_for_mass(self, events, common_args):
         return [self._get_datalist_noread(event, None, common_args) for event in events]
 
-    def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5', overwrite_hdf=True, overwrite_event=False, obsfile='separate', year_option=None, cutoff_magnitude=None, dir_ext='', cpu_number=None, respdir='./resp_catalog'):
+    def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5', overwrite_hdf=True, overwrite_event=False, obsfile='separate', year_option=None, cutoff_magnitude=None, dir_ext='', cpu_number=None, batch_size=20, respdir='./resp_catalog'):
         if not shift: shift = (0,0)
         
         # load station list and build inventory for station response
@@ -874,49 +881,45 @@ class SeismicData():
         # print(f"test run finished in {(time.time()-t0):.04f} sec")
 
         
-        datalist = []
         worker_number = (cpu_number or cpu_count())
         shuffled_events = picker.data.events.copy()
         random.shuffle(shuffled_events)
-        print(f"preparing waveforms in parallel, #worker={worker_number}.")
-        t0 = time.time()
-        with ProcessPoolExecutor(max_workers=worker_number) as executor:
-            threads = [None] * (worker_number)
-            def split_array(a, n):
-                k, m = divmod(len(a), n)
-                return [a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n)]
-            input_pool = split_array(shuffled_events, worker_number)
-            for thread_index in range(worker_number):
-                thread_input = input_pool[thread_index]
-                if obsfile == 'mass':
-                    threads[thread_index] = executor.submit(self._datalist_for_mass, thread_input, common_args)
-                else:
-                    threads[thread_index] = executor.submit(self._datalist_while_reading_obspy, thread_input, common_args)
 
-        batch_results = [threads[thread_index].result() for thread_index in range(worker_number)]
-
-        # batch_results = [self._datalist_for_mass(shuffled_events, common_args)]
-        print(f"test run finished in {(time.time()-t0):.04f} sec")
-
-        ### 
-        
         with h5py.File(output, 'w' if overwrite_hdf else 'a') as f:
-            if overwrite_hdf: f.create_group("data")
-            def flatten_list(l):
-                for el in l:
-                    if isinstance(el, list): yield from flatten_list(el)
-                    else: yield el
-            flatten_results = flatten_list(batch_results)
             waveform_count = 0
-            for item in flatten_results:
-                dataset = f.create_dataset(f"data/{item['attrs']['trace_name']}", data=item['data'])
-                for attr, val in item['attrs'].items():
-                    if not val is None: dataset.attrs[attr] = val
-                item['attrs']['source_origin_time'] = UTCDateTime(item['attrs']['source_origin_time'])
-                item['attrs']['trace_start_time'] = UTCDateTime(item['attrs']['trace_start_time'])
-                item['attrs']['coda_end_sample'] = [[item['attrs']['coda_end_sample']]]
-                datalist.append(item['attrs'])
-                waveform_count = waveform_count + 1
+            datalist = []
+            if overwrite_hdf: f.create_group("data")
+
+            while (shuffled_events):
+                popped_events = [shuffled_events.pop() for _ in range(min(worker_number*batch_size, len(shuffled_events)))]
+                print(f"preparing waveform batches in parallel, #worker={worker_number}.")
+                t0 = time.time()
+                with ProcessPoolExecutor(max_workers=worker_number) as executor:
+                    threads = [None] * (worker_number)
+                    input_pool = split_array(popped_events, worker_number)
+                    for thread_index in range(worker_number):
+                        thread_input = input_pool[thread_index]
+                        if obsfile == 'mass':
+                            threads[thread_index] = executor.submit(self._datalist_for_mass, thread_input, common_args)
+                        else:
+                            threads[thread_index] = executor.submit(self._datalist_while_reading_obspy, thread_input, common_args)
+
+                batch_results = [threads[thread_index].result() for thread_index in range(worker_number)]
+
+                # batch_results = [self._datalist_for_mass(shuffled_events, common_args)]
+                print(f"batch run finished in {(time.time()-t0):.04f} sec")
+
+                # writing part
+                flatten_results = flatten_list(batch_results)
+                for item in flatten_results:
+                    dataset = f.create_dataset(f"data/{item['attrs']['trace_name']}", data=item['data'])
+                    for attr, val in item['attrs'].items():
+                        if not val is None: dataset.attrs[attr] = val
+                    item['attrs']['source_origin_time'] = UTCDateTime(item['attrs']['source_origin_time'])
+                    item['attrs']['trace_start_time'] = UTCDateTime(item['attrs']['trace_start_time'])
+                    item['attrs']['coda_end_sample'] = [[item['attrs']['coda_end_sample']]]
+                    datalist.append(item['attrs'])
+                    waveform_count = waveform_count + 1
 
         print(f"All {waveform_count} waveforms from {len(self.events)} events by {self.events[-1].srctime} are done.")
         return datalist
@@ -995,17 +998,31 @@ class Picker():
         with open(filename, 'wb') as file:
             pickle.dump(self.data, file, pickle.HIGHEST_PROTOCOL)
 
-    def get_stationlist(self):
-        station_list = []
-        station_dict = {}
-        for event in self.data.events:
-            for station in event.stations:
-                if not station.labelsta['name'] in station_list:
-                    station_list.append(station.labelsta['name'])
-                    station_dict[station.labelsta['name']] = station
-        self.station_list = station_list
-        self.station_dict = station_dict
-        return self.station_list, self.station_dict
+    def get_stationlist(self, method="event_table", target_year="", target_dir=None):
+        if method == "event_table":
+            station_list = []
+            station_dict = {}
+            for event in self.data.events:
+                for station in event.stations:
+                    if not station.labelsta['name'] in station_list:
+                        station_list.append(station.labelsta['name'])
+                        station_dict[station.labelsta['name']] = station
+            self.station_list = station_list
+            self.station_dict = station_dict
+            return self.station_list, self.station_dict
+        else:
+            station_list = []
+            station_dict = {}
+            for event in self.data.events:
+                search_path = f"{target_dir}/{target_year}*.obspy"
+                stations_code = [filename.split("/")[-1].split(".")[1] for filename in glob.glob(search_path)]
+                for station_code in stations_code:
+                    if not station_code in station_list:
+                        station_list.append(station_code)
+                        station_dict[station_code] = station
+            self.station_list = station_list
+            self.station_dict = station_dict
+            return self.station_list, self.station_dict
     
 
     def _resampling(st):
@@ -1245,7 +1262,7 @@ class Picker():
         self.repfile = open(os.path.join(preproc_dir,"prepare_report.txt"), 'w')
 
         if self.station_dict is None or self.station_list is None:
-            self.get_stationlist()
+            self.get_stationlist(method="directory")
 
         self.model = TauPyModel(model="prem")
         self.data_track = dict()
@@ -1374,10 +1391,11 @@ if __name__ == '__main__':
     # call mass downloader 'waveformget'
 
     # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
+    target_year = 2011
     datalist = picker.data.get_datalist(
         resample=resample_rate,
         preprocess=True,
-        year_option=2011,
+        year_option=target_year,
         cutoff_magnitude=5.5,
         obsfile="mass",
         dir_ext='_catalog_mass',
@@ -1390,10 +1408,10 @@ if __name__ == '__main__':
 
     ################################################################
 
-    # # -> prepare directory for prediction by picker.prepare_catalog()
+    # -> prepare directory for prediction by picker.prepare_catalog()
     # picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
-    # picker.prepare_catalog('./training_catalog3', './catalog3_stnflt_preproc', './catalog3_stnflt_hdfs', 10)
-    # # -> run predition with EQTransfomer in JupyterNotebook
+    picker.prepare_catalog('./training_catalog_mass', f'./catalog_{target_year}_stnflt_preproc', f'./catalog_{target_year}_stnflt_hdfs', 10)
+    # -> run predition with EQTransfomer in JupyterNotebook
 
     # # create dataset from scretch, fetch seismic data, and dump
     # picker = Picker()
