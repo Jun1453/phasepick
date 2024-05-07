@@ -589,7 +589,7 @@ class SeismicData():
             # load proceesed file if exists
             if not overwrite_event and os.path.exists(processed_filename):
                 stream = read(processed_filename)
-                print(f"loaded {event_name}")
+                #print(f"loaded {event_name}")
                 
             # prepare proprocessing if not
             else: 
@@ -621,7 +621,7 @@ class SeismicData():
                 if not (len(stream) == 3 and len(stream[0])*len(stream[1])*len(stream[2])>0 and np.isscalar(stream[0].data[0])): continue
 
                 # preprocessing
-                print(f"preprocessing {event_name}...")
+                #print(f"preprocessing {event_name}...")
                 try:
                     # check array size for waveform data
                     stream.trim(starttime=fn_starttime_full(event.srctime), endtime=fn_endtime_full(event.srctime)+1)
