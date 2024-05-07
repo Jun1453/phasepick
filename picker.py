@@ -1014,11 +1014,14 @@ class Picker():
             station_dict = {}
             for event in self.data.events:
                 search_path = f"{target_dir}/{target_year}*.obspy"
-                stations_code = [filename.split("/")[-1].split(".")[1] for filename in glob.glob(search_path)]
-                for station_code in stations_code:
+                for filename in glob.glob(search_path):
+                    station_code = filename.split("/")[-1].split(".")[1] 
                     if not station_code in station_list:
                         station_list.append(station_code)
-                        station_dict[station_code] = station
+                        inv = read_inventory(filename)
+                        station_dict[station_code] = Station(station_code, inv[0][0].latitude, inv[0][0].longitude,
+                                    dist=locations2degrees(lat1=inv[0][0].latitude, long1=inv[0][0].longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
+                                    azi=None, loc=None)
             self.station_list = station_list
             self.station_dict = station_dict
             return self.station_list, self.station_dict
