@@ -1023,8 +1023,8 @@ class Picker():
             station_dict = {}
             for event in self.data.events:
                 if event.srctime.year != self.target_year: continue
-                search_path = f"{self.waveform_dir}/{UTCDateTime(self.srctime, precision=3)}/*.obspy"
-                print(search_path)
+                search_path = f"{self.data.rawdata_dir}/{UTCDateTime(event.srctime, precision=6)}/stations/*.xml"
+                #print(search_path)
                 for filename in glob.glob(search_path):
                     station_code = filename.split("/")[-1].split(".")[1] 
                     if not station_code in station_list:
@@ -1122,6 +1122,7 @@ class Picker():
                     for event in self.data.events:
                         if event.srctime == target_srctime:
                             ref_trace = event._findstation(station)
+                            print(p_calctim = self.model.get_travel_times(event.srcloc[2], ref_trace.labelsta['dist'], ['P'])[0].time)
                             try:
                                 p_calctim = self.model.get_travel_times(event.srcloc[2], ref_trace.labelsta['dist'], ['P'])[0].time
                                 print("Using calculated P arrival window for", output_name, filename)
@@ -1370,7 +1371,7 @@ if __name__ == '__main__':
     picker = Picker([], False,
             station_list_path="./stalist2010.pkl",
             response_list_path="./resp_catalog/resplist2010_lite.pkl",
-            rawdata_dir="./rawdata_catalog3",
+            rawdata_dir="./rawdata_catalog_mass",
             target_year=2011,
             stationlist_method="directory"
             )
