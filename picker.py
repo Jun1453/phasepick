@@ -30,7 +30,8 @@ from obspy.core.util.deprecation_helpers import ObsPyDeprecationWarning
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 # if len(sys.argv)==2: log = open(sys.argv[1], "w"); sys.stdout = log; sys.stderr = log
-warnings.simplefilter('ignore', category=ObsPyDeprecationWarning)
+# warnings.simplefilter('ignore', category=ObsPyDeprecationWarning)
+warnings.simplefilter('ignore')
 
 fn_starttime_full = lambda srctime: srctime - 0.5 * 60 * 60
 fn_endtime_full = lambda srctime: srctime + 2 * 60 * 60
@@ -516,9 +517,30 @@ class SeismicData():
         resplist = args['resplist']
         velocity_model = args['velocity_model']
         default_p_calctime = args['default_p_calctime']
+        event.srctime = UTCDateTime(event.srctime, precision=3)
 
         sublist = []
         first_writing = False
+
+        def find_location(obspy_obj, station_code=None, location_priority = ['', '00', '10']) -> tuple:
+            for location_matching in location_priority:
+                if station_code == None:
+                    traces_matching = obspy_obj.select(location=location_matching)
+                else:
+                    traces_matching = obspy_obj.select(station=station_code, location=location_matching)
+
+                if len(traces_matching) == 3: return (location_matching, traces_matching)
+                elif len(traces_matching) > 3:
+                    if len(traces_matching.select(channel='LHE'))>0 and len(traces_matching.select(channel='LHN'))>0:
+                        traces_matching.remove(traces_matching.select(channel='LH1'))
+                        traces_matching.remove(traces_matching.select(channel='LH2'))
+                        if len(traces_matching) == 3: return (location_matching, traces_matching)
+                    else:
+                        traces_matching.remove(traces_matching.select(channel='LHN'))
+                        traces_matching.remove(traces_matching.select(channel='LHE'))
+                        if len(traces_matching) == 3: return (location_matching, traces_matching)
+            return (None, None)
+
         # print(f"preparing for {len(event.stations)} stations at {event.srctime}...")
 
         # load obsfile first if input is compiled
@@ -526,17 +548,26 @@ class SeismicData():
         #     t0 = time.time()
         #     stream_org = read(f"{loaddir}/{event.srctime}.LH.obspy")
         #     print(f"finish loading {event.srctime} in {(time.time()-t0):.04f} sec, now processing...")
-        if obsfile != 'compiled':
-            raise Exception("obsfile must be compiled in noread method")
+        if obsfile != 'compiled' and obsfile != 'mass':
+            raise Exception("obsfile must be `compiled` or `mass` in noread method")
+        
+        if len(event.stations) == 0:
+            print(f"loading station xml files for {event.srctime}...")
+            for stationxml in glob.glob(f"{loaddir}/{UTCDateTime(event.srctime, precision=6)}/stations/*.xml"):
+                network = read_inventory(stationxml)[0]; station = network[0]
+                # build station list
+                location_matched, _ = find_location(station)
+                if location_matched == None: continue
+                fetched = Station(station.code, station.latitude, station.longitude,
+                                    dist=locations2degrees(lat1=station.latitude, long1=station.longitude, lat2=event.srcloc[0], long2=event.srcloc[1]),
+                                    azi=gps2dist_azimuth(lat1=station.latitude, lon1=station.longitude, lat2=event.srcloc[0], lon2=event.srcloc[1])[2],
+                                    loc=location_matched)
+                fetched.labelnet['code'] = network.code
+                fetched.isdataexist = True
+                event.stations.append(fetched)
 
         # loop for trace
         for trace_set in event.stations:
-            # load obsfile now if input is not compiled
-            # if obsfile != 'compiled':
-            #     # obsfilenames = glob.glob(f"{loaddir}/{event.srctime}/*{trace_set.labelsta['name']}.LH.obspy")
-            #     # stream_org = read(obsfilenames[0])
-            #     stream_org = read(f"{loaddir}/{event.srctime}/*{trace_set.labelsta['name']}.LH.obspy")
-            
             network_code = trace_set.labelnet['code']
             station_code = trace_set.labelsta['name']
             station_label = trace_set.labelsta
@@ -553,22 +584,13 @@ class SeismicData():
                 
             # prepare proprocessing if not
             else: 
+                # load obsfile now if waveforms are mass downloaded mseed
+                if obsfile == 'mass':
+                    stream_org = read(f"{loaddir}/{UTCDateTime(event.srctime, precision=6)}/waveforms/{network_code}.{station_code}.*.mseed")
                 # select 3 components
                 if type(station_label['loc'] is list): # bug-handling
-                    location_priority = ['', '00', None]
-                    for location_matching in location_priority:
-                        traces_matching = stream_org.select(station=station_code, location=location_matching)
-                        if len(traces_matching) == 3: break
-                        elif len(traces_matching) > 3:
-                            if len(traces_matching.select(channel='LHE'))>0 and len(traces_matching.select(channel='LHN'))>0:
-                                traces_matching.remove(traces_matching.select(channel='LH1'))
-                                traces_matching.remove(traces_matching.select(channel='LH2'))
-                                if len(traces_matching) == 3: break
-                            else:
-                                traces_matching.remove(traces_matching.select(channel='LHN'))
-                                traces_matching.remove(traces_matching.select(channel='LHE'))
-                                if len(traces_matching) == 3: break
-                    stream = traces_matching
+                    _, stream = find_location(stream_org, station_code)
+                    if stream is None: continue
                 else:
                     stream = stream_org.select(station=station_code, location=station_label['loc'])
                     if len(stream) > 3:
@@ -587,14 +609,18 @@ class SeismicData():
                 print(f"preprocessing {event_name}...")
                 try:
                     # check array size for waveform data
+                    stream.trim(starttime=fn_starttime_full(event.srctime), endtime=fn_endtime_full(event.srctime)+1)
                     for record in stream:
-                        if record.data.shape[0] <= 9000+20 and record.data.shape[0] > 9000: record.data = record.data[:9000]
+                        if record.data.shape[0] < 9000: raise ValueError(f"Trace has too few samples: {str(record)}")
                         elif record.data.shape[0] > 9000+20: raise ValueError(f"Trace has too many samples: {str(record)}")
-                        elif record.data.shape[0] < 9000: raise ValueError(f"Trace has too few samples: {str(record)}")
+                        elif record.data.shape[0] <= 9000+20 and record.data.shape[0] > 9000: record.data = record.data[:9000]
 
                     # deconvolve and convolve instrument response using obspy
                     if preprocess is True:
-                        obspy_station = resplist[f'{network_code}.{station_code}.LH'].find_obspy_station(event.srctime)
+                        if obsfile == 'mass': # look for station xml
+                            obspy_station = read_inventory(f'{loaddir}/{UTCDateTime(event.srctime, precision=6)}/stations/{network_code}.{station_code}.xml')[0][0]
+                        else: # read from resplist
+                            obspy_station = resplist[f'{network_code}.{station_code}.LH'].find_obspy_station(event.srctime)
                         if len(stream.select(channel="LHE"))>0 and len(stream.select(channel="LHN"))>0:
                             channels = ["LHE", "LHN", "LHZ"]
                             stream = deconv_resp(rawdata=stream, 
@@ -785,18 +811,27 @@ class SeismicData():
         
         results[-1] = self._get_datalist_noread(event_already_read, stream_org, common_args)
         return results
+    
+    # create datalist by searching all records in the event table
+    def _datalist_for_mass(self, events, common_args):
+        return [self._get_datalist_noread(event, None, common_args) for event in events]
 
     def get_datalist(self, resample=0, rotate=True, preprocess=True, shift=(-100,100), output='./test.hdf5', overwrite_hdf=True, overwrite_event=False, obsfile='separate', year_option=None, cutoff_magnitude=None, dir_ext='', cpu_number=None, respdir='./resp_catalog'):
         if not shift: shift = (0,0)
         
         # load station list and build inventory for station response
         if preprocess:
-            if not self.resplist: self.prepare_resplist(respdir)
+            if obsfile == 'mass':
+                reference_inventory = read_inventory(f"{respdir}/SR.GRFO.1978.225.00.1993.329.00")[0][0]
+                reference_responses = [reference_inventory.select(channel=channel)[0].response for channel in ["LHE", "LHN", "LHZ"]]
 
-            # get instrument response for reference station
-            # reference_responses = [InstrumentResponse(network='SR', station='GRFO', component=component, timestamp=UTCDateTime(1983, 1, 1)) for component in ['LHE', 'LHN', 'LHZ']]
-            reference_datetime = UTCDateTime(1983, 1, 1)
-            reference_responses = [self.resplist['SR.GRFO.LH'].find_obspy_station(reference_datetime).select(channel=channel,time=reference_datetime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
+            else:
+                if not self.resplist: self.prepare_resplist(respdir)
+                # get instrument response for reference station
+                # reference_responses = [InstrumentResponse(network='SR', station='GRFO', component=component, timestamp=UTCDateTime(1983, 1, 1)) for component in ['LHE', 'LHN', 'LHZ']]
+                reference_datetime = UTCDateTime(1983, 1, 1)
+                reference_responses = [self.resplist['SR.GRFO.LH'].find_obspy_station(reference_datetime).select(channel=channel,time=reference_datetime)[0].response for channel in ["LHE", "LHN", "LHZ"]]
+            print("reference station response file is read")
 
         # set directory
         loaddir = f'./rawdata{dir_ext}' if preprocess else f"./training{dir_ext}"
@@ -805,10 +840,10 @@ class SeismicData():
         elif preprocess: savedir = f"./training{dir_ext}"
 
         # select events
-        for event in self.events:
-            event.srctime.precision = 3 
-            if year_option and (event.srctime.year != year_option): self.events.remove(event)
-            if cutoff_magnitude and (event.magnitude < cutoff_magnitude): self.events.remove(event)
+        def event_checked(event) -> bool:
+            return False if (year_option and (event.srctime.year != year_option)) or (cutoff_magnitude and (event.magnitude < cutoff_magnitude)) else True
+        self.events = list(filter(event_checked, self.events))
+        print("events to process are selected")
 
         # set up parameters for parallel computing
         common_args = {
@@ -821,7 +856,7 @@ class SeismicData():
             'loaddir': loaddir,
             'savedir': savedir,
             'overwrite_event': overwrite_event,
-            'resplist': self.resplist,
+            'resplist': self.resplist if obsfile != 'mass' else None,
             'velocity_model': self.picker.model,
             'default_p_calctime': self.picker.default_p_calctime
         }
@@ -851,9 +886,14 @@ class SeismicData():
             input_pool = split_array(shuffled_events, worker_number)
             for thread_index in range(worker_number):
                 thread_input = input_pool[thread_index]
-                threads[thread_index] = executor.submit(self._datalist_while_reading_obspy, thread_input, common_args)
+                if obsfile == 'mass':
+                    threads[thread_index] = executor.submit(self._datalist_for_mass, thread_input, common_args)
+                else:
+                    threads[thread_index] = executor.submit(self._datalist_while_reading_obspy, thread_input, common_args)
 
         batch_results = [threads[thread_index].result() for thread_index in range(worker_number)]
+
+        # batch_results = [self._datalist_for_mass(shuffled_events, common_args)]
         print(f"test run finished in {(time.time()-t0):.04f} sec")
 
         ### 
@@ -876,7 +916,7 @@ class SeismicData():
                 datalist.append(item['attrs'])
                 waveform_count = waveform_count + 1
 
-        print(f"All {waveform_count} waveforms from {len(self.events)} events by {event.srctime} are done.")
+        print(f"All {waveform_count} waveforms from {len(self.events)} events by {self.events[-1].srctime} are done.")
         return datalist
     
     def load_datalist_from_hdf5(self, hdf5_filename):
@@ -1003,9 +1043,11 @@ class Picker():
     
         if obsfile=='separate':
             filenames = glob.glob(f'{self.waveform_dir}/*/*.{station_code}.*') #[join(station, ev) for ev in listdir(station) if ev.split("/")[-1] != ".DS_Store"];
+        elif obsfile=='mass':
+            filenames = glob.glob(f'{self.waveform_dir}/*/waveforms/*.{station_code}.*')
         else:
-            # filenames = glob.glob(f'{self.waveform_dir}/*.{station_code}.*')
-            filenames = glob.glob(f'{self.waveform_dir}/2010*.{station_code}.*')
+            filenames = glob.glob(f'{self.waveform_dir}/*.{station_code}.*')
+            # filenames = glob.glob(f'{self.waveform_dir}/2010*.{station_code}.*')
         
         time_slots, comp_types = [], []
         
@@ -1297,9 +1339,12 @@ if __name__ == '__main__':
             response_list_path="./resp_catalog/resplist2010_lite.pkl",
             rawdata_dir="./rawdata_catalog3")
     print("picker created.")
-    #picker.data.events = np.load('./gcmt.npy', allow_pickle=True)
-    # print("catalog loaded.")
 
+    picker.data.events = list(np.load('./gcmt_mw.npy', allow_pickle=True))
+    print("catalog loaded.")
+
+    ################################################################
+    # A: download events by specifying a time frame
     # -> simply download all GCMT cataloged LH data (prefered # of MP downloading sessions is 10? for IRIS) by data.fetch
     # picker.data.fetch(cpu_number=10)
 
@@ -1312,18 +1357,41 @@ if __name__ == '__main__':
     # picker.data.prepare_resplist(respdir='./resp_catalog')
     # picker.data.prepare_event_table(cpu_number=12)
     # picker.dump_dataset("./rawdata_catalog3/data_fetched_catalog_2010_3.pkl")
-    
+
     # # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
     # # picker.data.prepare_resplist(respdir='./resp_catalog')
     # picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
+    # print("station records loaded.")
     # datalist = picker.data.get_datalist(resample=resample_rate, preprocess=True, output='./rawdata_catalog3/catalog_2010_preproc_3_re.hdf5', overwrite_hdf=True, obsfile="compiled", year_option=2010, cutoff_magnitude=5.5, dir_ext='_catalog3', cpu_number=8)
     # df = pd.DataFrame(datalist)
     # df.to_csv('catalog_2010_preproc_3.csv', index=False)
+    ################################################################
+    
+    ################################################################
+    # B: download events with mass downloader
+    # call mass downloader 'waveformget'
 
-    # -> prepare directory for prediction by picker.prepare_catalog()
-    picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
-    picker.prepare_catalog('./training_catalog3', './catalog3_stnflt_preproc', './catalog3_stnflt_hdfs', 10)
-    # -> run predition with EQTransfomer in JupyterNotebook
+    # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
+    datalist = picker.data.get_datalist(
+        resample=resample_rate,
+        preprocess=True,
+        year_option=2011,
+        cutoff_magnitude=5.5,
+        obsfile="mass",
+        dir_ext='_catalog_mass',
+        overwrite_hdf=True,
+        output='./catalog_2011_preproc.hdf5',
+        cpu_number=8
+    )
+    df = pd.DataFrame(datalist)
+    df.to_csv('catalog_2011_preproc.csv', index=False)    
+
+    ################################################################
+
+    # # -> prepare directory for prediction by picker.prepare_catalog()
+    # picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
+    # picker.prepare_catalog('./training_catalog3', './catalog3_stnflt_preproc', './catalog3_stnflt_hdfs', 10)
+    # # -> run predition with EQTransfomer in JupyterNotebook
 
     # # create dataset from scretch, fetch seismic data, and dump
     # picker = Picker()
