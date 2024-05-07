@@ -1276,7 +1276,7 @@ class Picker():
 
         if self.station_dict is None or self.station_list is None:
             print("generating station list...")
-            self.get_stationlist(target_dir=waveform_dir)
+            self.get_stationlist()
 
         self.model = TauPyModel(model="prem")
         self.data_track = dict()
