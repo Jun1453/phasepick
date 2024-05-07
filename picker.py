@@ -847,7 +847,6 @@ class SeismicData():
         elif preprocess=='onlyrot': savedir = f"./training_onlyrot{dir_ext}"
         elif preprocess: savedir = f"./training{dir_ext}"
 
-        self.events = self.events[33872:33872+45]
         # select events
         def event_checked(event) -> bool:
             return False if (year_option and (event.srctime.year != year_option)) or (cutoff_magnitude and (event.magnitude < cutoff_magnitude)) else True
