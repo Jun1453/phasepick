@@ -1022,7 +1022,8 @@ class Picker():
             station_list = []
             station_dict = {}
             for event in self.data.events:
-                search_path = f"{self.waveform_dir}/{self.target_year}*.obspy"
+                if event.srctime.year != self.target_year: continue
+                search_path = f"{self.waveform_dir}/{UTCDateTime(self.srctime, precision=3)}/*.obspy"
                 print(search_path)
                 for filename in glob.glob(search_path):
                     station_code = filename.split("/")[-1].split(".")[1] 
