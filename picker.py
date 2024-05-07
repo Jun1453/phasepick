@@ -1363,7 +1363,7 @@ if __name__ == '__main__':
 
     # best workflow:
     picker = Picker([], False,
-            station_list_path="./stalist2010.pkl",
+            station_list_path=None,#"./stalist2010.pkl",
             response_list_path="./resp_catalog/resplist2010_lite.pkl",
             rawdata_dir="./rawdata_catalog3")
     print("picker created.")
@@ -1397,23 +1397,23 @@ if __name__ == '__main__':
     
     ################################################################
     # B: download events with mass downloader
+    target_year = 2011
     # call mass downloader 'waveformget'
 
-    # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
-    target_year = 2011
-    datalist = picker.data.get_datalist(
-        resample=resample_rate,
-        preprocess=True,
-        year_option=target_year,
-        cutoff_magnitude=5.5,
-        obsfile="mass",
-        dir_ext='_catalog_mass',
-        overwrite_hdf=True,
-        output='./catalog_2011_preproc.hdf5',
-        cpu_number=10
-    )
-    df = pd.DataFrame(datalist)
-    df.to_csv('catalog_2011_preproc.csv', index=False)    
+    # # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
+    # datalist = picker.data.get_datalist(
+    #     resample=resample_rate,
+    #     preprocess=True,
+    #     year_option=target_year,
+    #     cutoff_magnitude=5.5,
+    #     obsfile="mass",
+    #     dir_ext='_catalog_mass',
+    #     overwrite_hdf=True,
+    #     output='./catalog_2011_preproc.hdf5',
+    #     cpu_number=10
+    # )
+    # df = pd.DataFrame(datalist)
+    # df.to_csv('catalog_2011_preproc.csv', index=False)    
 
     ################################################################
 
