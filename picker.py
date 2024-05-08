@@ -1379,11 +1379,12 @@ if __name__ == '__main__':
     # picker.prepare_catalog('./training_onlyrot', './hmsl_rot_preproc', './hmsl_rot_hdfs', 10)
 
     # best workflow:
+    if not (int(sys.argv[1]) > 1970 and int(sys.argv[1]) < 2100): raise ValueError("invalid args")
     picker = Picker([], False,
-            station_list_path="./stalist2010.pkl",
-            response_list_path="./resp_catalog/resplist2010_lite.pkl",
+            station_list_path=None,#"./stalist2010.pkl",
+            response_list_path=None,#"./resp_catalog/resplist2010_lite.pkl",
             rawdata_dir="./rawdata_catalog_mass",
-            target_year=2011,
+            target_year=int(sys.argv[1]),
             stationlist_method="directory"
             )
     print("picker created.")
@@ -1419,26 +1420,26 @@ if __name__ == '__main__':
     # B: download events with mass downloader
     # call mass downloader 'waveformget'
 
-    # # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
-    # datalist = picker.data.get_datalist(
-    #     resample=resample_rate,
-    #     preprocess=True,
-    #     year_option=target_year,
-    #     cutoff_magnitude=5.5,
-    #     obsfile="mass",
-    #     dir_ext='_catalog_mass',
-    #     overwrite_hdf=True,
-    #     output='./catalog_2011_preproc.hdf5',
-    #     cpu_number=10
-    # )
-    # df = pd.DataFrame(datalist)
-    # df.to_csv('catalog_2011_preproc.csv', index=False)    
+    # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
+    datalist = picker.data.get_datalist(
+        resample=resample_rate,
+        preprocess=True,
+        year_option=picker.target_year,
+        cutoff_magnitude=5.5,
+        obsfile="mass",
+        dir_ext='_catalog_mass',
+        overwrite_hdf=True,
+        output=f'./catalog_{picker.target_year}_preproc.hdf5',
+        cpu_number=10
+    )
+    df = pd.DataFrame(datalist)
+    df.to_csv(f'catalog_{picker.target_year}_preproc.csv', index=False)    
 
     ################################################################
 
     # -> prepare directory for prediction by picker.prepare_catalog()
     # picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
-    picker.prepare_catalog('./training_catalog_mass', f'./catalog_{picker.target_year}_stnflt_preproc', f'./catalog_{picker.target_year}_stnflt_hdfs', 10)
+    picker.prepare_catalog('./training_catalog_mass', f'/Volumes/seismic/catalog_{picker.target_year}_stnflt_preproc', f'/Volumes/seismic/catalog_{picker.target_year}_stnflt_hdfs', 10)
     # -> run predition with EQTransfomer in JupyterNotebook
 
     # # create dataset from scretch, fetch seismic data, and dump
