@@ -40,6 +40,10 @@ data.json
 json
 updeANMO*.csv
 *bug.csv
+catalog*.csv
+
+# testing
+Untitled*.ipynb
 
 # log
 message.log
