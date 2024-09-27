@@ -28,6 +28,7 @@ from obspy.signal.invsim import simulate_seismometer, evalresp_for_frequencies
 from obspy.clients.fdsn.header import FDSNNoDataException
 from obspy.io.mseed import InternalMSEEDError
 from obspy.core.util.deprecation_helpers import ObsPyDeprecationWarning
+from obspy.core.util.obspy_types import ObsPyException
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 # if len(sys.argv)==2: log = open(sys.argv[1], "w"); sys.stdout = log; sys.stderr = log
@@ -67,7 +68,10 @@ class Event():
     def appendstation(self, station):
         self.stations.append(station)
     def __repr__(self):
-        return f"{self.srctime} magnitude {self.magnitude} at lat. {self.srcloc[0]} lon. {self.srcloc[1]}"
+        if 'magnitude' in dir(self):
+            return f"{self.srctime} magnitude {self.magnitude} at lat. {self.srcloc[0]} lon. {self.srcloc[1]}"
+        else:
+            return f"{self.srctime} magnitude unknown at lat. {self.srcloc[0]} lon. {self.srcloc[1]}"
 
 class Station():
     def __init__(self, station, lat, lon, dist, azi, loc=''):
@@ -81,7 +85,7 @@ class Station():
     def __ne__(self, target):
         return not self.__eq__(target)
     def __repr__(self):
-        return f"observation at station {self.labelsta['name']} of {self.labelnet['code'] or 'UNKNOWN'} network with azimuth angle {(self.labelsta['azi']+180)%360} deg"
+        return f"observation at station {self.labelsta['name']} of {self.labelnet['code'] or 'UNKNOWN'} network with azimuth angle {(360-self.labelsta['azi'])} deg"
 
 class Record():
     def __init__(self, phase, residual, error, ellipcor, crustcor, obstim, calctim):
@@ -398,50 +402,52 @@ class SeismicData():
         # self.events = p.starmap(self._prepare_resplist_par, zip(self.events[32020:33872], repeat(False)))
         print(f"fetching finished in {(time.time()-t0):.04f} sec.")
         
-    def prepare_event_table(self, cpu_number=None):
-        print("setting multiprocessing for preparing events...")
-        # p = ThreadPool(cpu_number or cpu_count()) # set parallel fetch
-        t0 = time.time()
-        # self.events = p.map(self._prepare_event_table_par, self.events[32020:33872]) #only year 2010
-        common_args = {'rawdata_dir': self.rawdata_dir, 'resplist': self.resplist}
-        with get_context('fork').Pool(cpu_number or cpu_count()) as p:
-        # with ThreadPool(cpu_number or cpu_count()) as p:
-            self.events = p.starmap(_prepare_event_table_spawn,
-                zip(self.events[32020:33872], repeat(common_args)))
-        print(f"event table are prepared in {(time.time()-t0):.04f} sec.")
+    # ### only used in method A for loading station response 
+    # def prepare_event_table(self, cpu_number=None):
+    #     print("setting multiprocessing for preparing events...")
+    #     # p = ThreadPool(cpu_number or cpu_count()) # set parallel fetch
+    #     t0 = time.time()
+    #     # self.events = p.map(self._prepare_event_table_par, self.events[32020:33872]) #only year 2010
+    #     common_args = {'rawdata_dir': self.rawdata_dir, 'resplist': self.resplist}
+    #     with get_context('fork').Pool(cpu_number or cpu_count()) as p:
+    #     # with ThreadPool(cpu_number or cpu_count()) as p:
+    #         self.events = p.starmap(_prepare_event_table_spawn,
+    #             zip(self.events[32020:33872], repeat(common_args)))
+    #     print(f"event table are prepared in {(time.time()-t0):.04f} sec.")
 
-    def create_stalist(self, cpu_number=None, respdir='./resp_catalog'): #WIP
-        loaded_station_count = 0
-        event_count = 0
-        if not self.resplist:
-            print("load station infomation...")
-            self.prepare_resplist(respdir); self.respdir = respdir
+    # def create_stalist(self, cpu_number=None, respdir='./resp_catalog'): #WIP
+    #     loaded_station_count = 0
+    #     event_count = 0
+    #     if not self.resplist:
+    #         print("load station infomation...")
+    #         self.prepare_resplist(respdir); self.respdir = respdir
         
-        for ev in self.events:
-            if ev: self.numdownloaded+=len(ev.stations); event_count+=1
-            else: self.events.remove(ev)
-        print(f"{event_count} events with {self.numdownloaded} seismograms are processed.")
+    #     for ev in self.events:
+    #         if ev: self.numdownloaded+=len(ev.stations); event_count+=1
+    #         else: self.events.remove(ev)
+    #     print(f"{event_count} events with {self.numdownloaded} seismograms are processed.")
 
-        client = Client('IRIS')
-        obspy_filenames = glob.glob("./rawdata_catalog2/*.obspy")
-        stalist = {} #{str: list}
+    #     client = Client('IRIS')
+    #     obspy_filenames = glob.glob("./rawdata_catalog2/*.obspy")
+    #     stalist = {} #{str: list}
 
-        for z_trace in stream.select(channel="LHZ"):
-            station_name = f"{z_trace.stats.network}.{z_trace.stats.station}.LH"
-            if station_name in stalist:
-                stalist[station_name].append(datetime_str)
-            else:
-                stalist[station_name] = [datetime_str]
+    #     for z_trace in stream.select(channel="LHZ"):
+    #         station_name = f"{z_trace.stats.network}.{z_trace.stats.station}.LH"
+    #         if station_name in stalist:
+    #             stalist[station_name].append(datetime_str)
+    #         else:
+    #             stalist[station_name] = [datetime_str]
 
-        # print(f"{len(obspy_filenames)} events are found")
-        # p = multiprocessing.get_context("fork").Pool(12)
-        # p.map(func, list(range(len(obspy_filenames[:20]))))
-        # for i in range(len(obspy_filenames)):
-        #     func(i)
-        # print(stalist)
-        with open('stalist.pkl', 'wb') as file:
-            pickle.dump(stalist, file)
-        return
+    #     # print(f"{len(obspy_filenames)} events are found")
+    #     # p = multiprocessing.get_context("fork").Pool(12)
+    #     # p.map(func, list(range(len(obspy_filenames[:20]))))
+    #     # for i in range(len(obspy_filenames)):
+    #     #     func(i)
+    #     # print(stalist)
+    #     with open('stalist.pkl', 'wb') as file:
+    #         pickle.dump(stalist, file)
+    #     return
+    # ###
 
     def link_downloaded(self, israwdata=True):
         count = 0
@@ -559,8 +565,9 @@ class SeismicData():
         if obsfile != 'compiled' and obsfile != 'mass':
             raise Exception("obsfile must be `compiled` or `mass` in noread method")
         
+        event_time_wild = f"{str(UTCDateTime(event.srctime, precision=3))[:-1]}*Z"
+        xml_directory = f"{loaddir}/{event.srctime.year}/{event_time_wild}/stations"
         if len(event.stations) == 0:
-            xml_directory = f"{loaddir}/{UTCDateTime(event.srctime, precision=6)}/stations"
             print(f"loading station xml files for {event.srctime} at {xml_directory}...")
             for stationxml in glob.glob(f"{xml_directory}/*.xml"):
                 network = read_inventory(stationxml)[0]; station = network[0]
@@ -581,41 +588,72 @@ class SeismicData():
             station_code = trace_set.labelsta['name']
             station_label = trace_set.labelsta
             event_name = f"{station_code}.{network_code}_{event.srctime.year:4d}{event.srctime.month:02d}{event.srctime.day:02d}{event.srctime.hour:02d}{event.srctime.minute:02d}{event.srctime.second:02d}_EV"
-            processed_filename = f"{savedir}/{event.srctime}/{network_code}.{station_code}.LH.obspy"
+            processed_filename = f"{savedir}/{event.srctime.year:4d}/{event.srctime}/{network_code}.{station_code}.LH.obspy"
 
             # network filter
-            if not network_code in ['AU', 'BR', 'DK', 'G', 'GE', 'GT', 'II', 'IM', 'IU', 'PS', 'SR']: continue
+            # if not network_code in ['AU', 'BR', 'DK', 'G', 'GE', 'GT', 'II', 'IM', 'IU', 'PS', 'SR']: continue
 
             # load proceesed file if exists
+            if not os.path.exists(f"{savedir}/{event.srctime.year:4d}"): os.mkdir(f"{savedir}/{event.srctime.year:4d}")
             if not overwrite_event and os.path.exists(processed_filename):
                 stream = read(processed_filename)
                 #print(f"loaded {event_name}")
                 
             # prepare proprocessing if not
             else: 
+                # continue ## adhoc only 400
                 # load obsfile now if waveforms are mass downloaded mseed
                 if obsfile == 'mass':
-                    try: stream_org = read(f"{loaddir}/{UTCDateTime(event.srctime, precision=6)}/waveforms/{network_code}.{station_code}.*.mseed")
+                    event_time_wild = f"{str(UTCDateTime(event.srctime, precision=3))[:-1]}*Z"
+                    if network_code == None:
+                        network_search = glob.glob(f"{loaddir}/{event.srctime.year}/{event_time_wild}/waveforms/*.{station_code}.*.mseed")
+                        if len(network_search) == 0:
+                            print(f"missing event {loaddir}/{event.srctime.year}/{event_time_wild}/waveforms/*.{station_code}.*.mseed"); continue
+                        else:
+                            network_code = network_search[0].split('/')[-1].split('.')[0]
+                            event_name = f"{station_code}.{network_code}_{event.srctime.year:4d}{event.srctime.month:02d}{event.srctime.day:02d}{event.srctime.hour:02d}{event.srctime.minute:02d}{event.srctime.second:02d}_EV"
+                            processed_filename = f"{savedir}/{event.srctime.year:4d}/{event.srctime}/{network_code}.{station_code}.LH.obspy"
+
+                    try: stream_org = read(f"{loaddir}/{event.srctime.year}/{event_time_wild}/waveforms/{network_code}.{station_code}.*.mseed")
                     except InternalMSEEDError as e:
                         print(f"Corrputed mseed in {event_name}: {e}, trying to read individually...") 
                         stream_org = Stream()
-                        for filename in glob.glob(f"{loaddir}/{UTCDateTime(event.srctime, precision=6)}/waveforms/{network_code}.{station_code}.*.mseed"):
+                        found_path = glob.glob(f"{loaddir}/{event.srctime.year}/{event_time_wild}/waveforms/{network_code}.{station_code}.*.mseed")
+                        for filename in found_path:
                             try: stream_org.append(read(filename)[0])
                             except: pass
                 # select 3 components
-                if type(station_label['loc'] is list): # bug-handling
-                    _, stream = find_location(stream_org, station_code)
-                    if stream is None: continue
+                if ('loc' in station_label) and (station_label['loc'] is not None):
+                    if type(station_label['loc'] is list): # bug-handling
+                        _, stream = find_location(stream_org, station_code)
+                        if stream is None: continue
+                    else:
+                        stream = stream_org.select(station=station_code, location=station_label['loc'])
+                        if len(stream) > 3:
+                            if len(stream.select(channel='LHE'))>0 and len(stream.select(channel='LHN'))>0:
+                                stream.remove(stream.select(channel='LH1'))
+                                stream.remove(stream.select(channel='LH2'))
+                            else:
+                                stream.remove(stream.select(channel='LHN'))
+                                stream.remove(stream.select(channel='LHE'))
+                        stream.sort()
                 else:
-                    stream = stream_org.select(station=station_code, location=station_label['loc'])
-                    if len(stream) > 3:
-                        if len(stream.select(channel='LHE'))>0 and len(stream.select(channel='LHN'))>0:
-                            stream.remove(stream.select(channel='LH1'))
-                            stream.remove(stream.select(channel='LH2'))
-                        else:
-                            stream.remove(stream.select(channel='LHN'))
-                            stream.remove(stream.select(channel='LHE'))
-                    stream.sort()
+                    location_priority = ['', '00', None]
+                    for location_matching in location_priority:
+                        traces_matching = stream_org.select(station=station_code, location=location_matching)
+                        if len(traces_matching) == 3: break
+                        elif len(traces_matching) > 3:
+                            try:
+                                if len(traces_matching.select(channel='LH[ENZ]')) == 3:
+                                    if len(traces_matching.select(channel='LH[12]'))>0: traces_matching.remove(list(traces_matching.select(channel='LH[12]')))
+                                    if len(traces_matching) == 3: break
+                                elif len(traces_matching.select(channel='LH[12Z]')) == 3:
+                                    if len(traces_matching.select(channel='LH[EN]'))>0: traces_matching.remove(list(traces_matching.select(channel='LH[EN]')))
+                                    if len(traces_matching) == 3: break
+                            except ValueError as e: # idk sometimes not-in-list error happens when remove
+                                print(f"Value error for {event_name}: {e}")
+                    if location_matching == None: continue
+                    stream = traces_matching
 
                 # sanity check for all three component
                 if not (len(stream) == 3 and len(stream[0])*len(stream[1])*len(stream[2])>0 and np.isscalar(stream[0].data[0])): continue
@@ -633,7 +671,7 @@ class SeismicData():
                     # deconvolve and convolve instrument response using obspy
                     if preprocess is True:
                         if obsfile == 'mass': # look for station xml
-                            obspy_station = read_inventory(f'{loaddir}/{UTCDateTime(event.srctime, precision=6)}/stations/{network_code}.{station_code}.xml')[0][0]
+                            obspy_station = read_inventory(f'{xml_directory}/{network_code}.{station_code}.xml')[0][0]
                         else: # read from resplist
                             obspy_station = resplist[f'{network_code}.{station_code}.LH'].find_obspy_station(event.srctime)
                         if len(stream.select(channel="LHE"))>0 and len(stream.select(channel="LHN"))>0:
@@ -660,10 +698,10 @@ class SeismicData():
                         stream.filter('bandpass', freqmin=0.03, freqmax=0.05, corners=2, zerophase=True)
 
                     # save data
-                    if not os.path.exists(f"{savedir}/{event.srctime}"):
-                        try: os.makedirs(f"{savedir}/{event.srctime}")
+                    if not os.path.exists(f"{savedir}/{event.srctime.year:04d}/{event.srctime}"):
+                        try: os.makedirs(f"{savedir}/{event.srctime.year:04d}/{event.srctime}")
                         except FileExistsError: pass # sometimes happens when folder created by another subprocess
-                        except: raise FileNotFoundError(f"error when opening a new folder: {savedir}/{event.srctime}")
+                        except: raise FileNotFoundError(f"error when opening a new folder: {savedir}/{event.srctime.year:04d}/{event.srctime}")
                     if not first_writing: print(f"now writing first trace for {network_code}.{station_code} for event {event.srctime}"); first_writing = True
                     stream.write(processed_filename, format="PICKLE")
                     
@@ -673,6 +711,8 @@ class SeismicData():
                     print(f"Value error for {event_name}: {e}")
                 except FileNotFoundError as e:
                     print(f"File-not-found error for {event_name}: {e}")
+                except ObsPyException as e:
+                    print(f"ObsPy error for {event_name}: {e}")
 
             # prepare shifting and labeling
             try:
@@ -691,7 +731,9 @@ class SeismicData():
                         is_calctim_defined = True
                 
                 if not is_calctim_defined:
-                    try: p_calctim0 = event.srctime + velocity_model.get_travel_times(event.srcloc[2], station_label['dist'], ['P'])[0].time
+                    try:
+                        p_calctim0 = event.srctime + velocity_model.get_travel_times(event.srcloc[2], station_label['dist'], ['P'])[0].time
+                        is_calctim_defined = True
                     except: p_calctim0 = event.srctime + default_p_calctime
 
                 # resampling
@@ -749,6 +791,7 @@ class SeismicData():
                         snr = None
                     
                     # set up waveform attributes
+                    ### should add theroteical arrival time
                     waveform_attrs = {
                         'network_code': network_code,
                         'receiver_code': station_code,
@@ -760,6 +803,7 @@ class SeismicData():
                         'p_status': p_status, 
                         'p_weight': p_weight, 
                         'p_travel_sec': p_travel_sec, 
+                        'p_calculate_travel_sec': p_calctim0 - event.srctime if is_calctim_defined else None, 
                         's_arrival_sample': int(s_travel_sec/delta) if s_status else None, 
                         's_status': s_status, 
                         's_weight': s_weight, 
@@ -918,6 +962,7 @@ class SeismicData():
                 # writing part
                 flatten_results = flatten_list(batch_results)
                 for item in flatten_results:
+                    if f"data/{item['attrs']['trace_name']}" in f: continue
                     dataset = f.create_dataset(f"data/{item['attrs']['trace_name']}", data=item['data'])
                     for attr, val in item['attrs'].items():
                         if not val is None: dataset.attrs[attr] = val
@@ -1023,9 +1068,11 @@ class Picker():
             station_dict = {}
             for event in self.data.events:
                 if event.srctime.year != self.target_year: continue
-                search_path = f"{self.data.rawdata_dir}/{UTCDateTime(event.srctime, precision=6)}/stations/*.xml"
-                #print(search_path)
-                for filename in glob.glob(search_path):
+                event_time_wild = f"{str(UTCDateTime(event.srctime, precision=3))[:-1]}*Z"
+                search_path = f"{self.data.rawdata_dir}/{event.srctime.year}/{event_time_wild}/stations/*.xml"
+                found_path = glob.glob(search_path)
+                # print(f"found {len(found_path)} station files")
+                for filename in found_path:
                     station_code = filename.split("/")[-1].split(".")[1] 
                     if not station_code in station_list:
                         station_list.append(station_code)
@@ -1059,8 +1106,8 @@ class Picker():
         station = self.station_dict[station_code]
         
         try:
-            os.remove(output_name+'.hdf5')
-            os.remove(output_name+".csv")
+            os.remove(f'{self.save_dir}/{output_name}.hdf5')
+            os.remove(f'{self.save_dir}/{output_name}.csv')
         except Exception:
             pass
         
@@ -1081,7 +1128,9 @@ class Picker():
             # filenames = glob.glob(f'{self.waveform_dir}/2010*.{station_code}.*')
         
         time_slots, comp_types = [], []
+        csv_references = {}
         
+        if len(filenames) == 0: return
         print('============ Station {} has {} chunks of data.'.format(station_code, len(filenames)), flush=True)  
             
         count_chuncks=0; c1=0; c2=0; c3=0
@@ -1118,22 +1167,42 @@ class Picker():
                     ####
                     target_srctime = UTCDateTime(filename.split('/')[-2])
                     p_calctim = self.default_p_calctime
-                    for event in self.data.events:
-                        if event.srctime == target_srctime:
-                            ref_trace = event._findstation(station)
-                            if obsfile == 'separate':
-                                ref_trace = event._findstation(station)
-                                dist = ref_trace.labelsta['dist']
-                            else:
-                                sta = read_inventory(f"{self.data.rawdata_dir}/{UTCDateTime(event.srctime, precision=6)}/stations/*{station_code}.xml")[0][0]
-                                dist = locations2degrees(lat1=sta.latitude, long1=sta.longitude, lat2=event.srcloc[0], long2=event.srcloc[1])
-                            try:
-                                p_calctim = self.model.get_travel_times(event.srcloc[2], dist, ['P'])[0].time
-                                # p_calctim = self.model.get_travel_times(event.srcloc[2], ref_trace.labelsta['dist'], ['P'])[0].time
+                    
+                    if not target_srctime.year in csv_references:
+                        if os.path.exists(f"./{preproc_prefix}_{target_srctime.year}_preproc.csv"):
+                            csv_references[target_srctime.year] = pd.read_csv(f"./{preproc_prefix}_{target_srctime.year}_preproc.csv")
+                        else:
+                            csv_references[target_srctime.year] = None
+                    ref_csv = csv_references[target_srctime.year]
+
+                    if (ref_csv is not None) and ('p_calculate_travel_sec' in ref_csv.columns):
+                        records_matched = ref_csv.loc[(ref_csv['source_origin_time'] == str(UTCDateTime(target_srctime, precision=6))) & (ref_csv['receiver_code'] == station_code)]
+                        if len(records_matched) > 0:
+                            if records_matched['p_calculate_travel_sec'].iloc[0] > 0:
+                                p_calctim = records_matched['p_calculate_travel_sec'].iloc[0]
                                 print("Using calculated P arrival window for", output_name, filename)
-                            except:
-                                print("Using default P arrival window for", output_name, filename)
-                            break
+                            else: print("Using default P arrival window for", output_name, filename)
+                        else: print("Using default P arrival window for", output_name, filename)
+                            
+                    else:
+                    # if True:
+                        for event in self.data.events:
+                            if event.srctime == target_srctime:
+                                ref_trace = event._findstation(station)
+                                if obsfile == 'separate':
+                                    ref_trace = event._findstation(station)
+                                    dist = ref_trace.labelsta['dist']
+                                else: # i.e., if obsfile == 'mass'
+                                    event_time_wild = f"{str(UTCDateTime(event.srctime, precision=3))[:-1]}*Z"
+                                    sta = read_inventory(f"{self.data.rawdata_dir}/{event.srctime.year}/{event_time_wild}/stations/*{station_code}.xml")[0][0]
+                                    dist = locations2degrees(lat1=sta.latitude, long1=sta.longitude, lat2=event.srcloc[0], long2=event.srcloc[1])
+                                try:
+                                    p_calctim = self.model.get_travel_times(event.srcloc[2], dist, ['P'])[0].time
+                                    # p_calctim = self.model.get_travel_times(event.srcloc[2], ref_trace.labelsta['dist'], ['P'])[0].time
+                                    print("Using calculated P arrival window for", output_name, filename)
+                                except:
+                                    print("Using default P arrival window for", output_name, filename)
+                                break
                         
                     start_time = fn_starttime_train(target_srctime+p_calctim)
                     end_time = fn_endtime_train(target_srctime+p_calctim)
@@ -1204,7 +1273,8 @@ class Picker():
                                 ref_trace = event._findstation(station)
                                 dist = ref_trace.labelsta['dist']
                             else:
-                                sta = read_inventory(f"{self.data.rawdata_dir}/{UTCDateTime(event.srctime, precision=6)}/stations/*{station_code}.xml")[0][0]
+                                event_time_wild = f"{str(UTCDateTime(event.srctime, precision=3))[:-1]}*Z"
+                                sta = read_inventory(f"{self.data.rawdata_dir}/{event.srctime.year}/{event_time_wild}/stations/*{station_code}.xml")[0][0]
                                 dist = locations2degrees(lat1=sta.latitude, long1=sta.longitude, lat2=event.srcloc[0], long2=event.srcloc[1])
                             print(p_calctim = self.model.get_travel_times(event.srcloc[2], dist, ['P'])[0].time)
                             try:
@@ -1293,6 +1363,8 @@ class Picker():
         self.model = TauPyModel(model="prem")
         self.data_track = dict()
 
+        # print(len(self.station_list))
+
         if not n_processor:
             n_processor = cpu_count()
         with ThreadPool(n_processor) as p:
@@ -1300,6 +1372,30 @@ class Picker():
         with open(os.path.join(preproc_dir,'time_tracks.pkl'), 'wb') as f:
             pickle.dump(self.data_track, f, pickle.HIGHEST_PROTOCOL)
 
+
+# if __name__ == '__main__':
+#     # table_dir = "../Downloads/drive-download-20220512T014633Z-001"
+#     # table_filenames = [f"{table_dir}/Pcomb.4.07.09.table",f"{table_dir}/Scomb.4.07.09.table"]
+#     # picker = Picker(table_filenames, False,
+#     #         station_list_path=None,#"./stalist2010.pkl",
+#     #         response_list_path=None,#"./resp_catalog/resplist2010_lite.pkl",
+#     #         rawdata_dir="./rawdata_catalog_mass",
+#     #         # target_year=int(sys.argv[1]),
+#     #         stationlist_method="directory"
+#     #         )
+#     # # picker.create_dataset(table_filenames)
+#     # np.save('HMSL_labeled_evnets', picker.data.events)
+#     picker = Picker([], False,
+#             station_list_path=None,#"./stalist2010.pkl",
+#             response_list_path=None,#"./resp_catalog/resplist2010_lite.pkl",
+#             rawdata_dir="./rawdata_catalog_mass",
+#             # target_year=int(sys.argv[1]),
+#             stationlist_method="directory"
+#             )
+#     print("picker created.")
+#     picker.load_dataset('data.pkl', verbose=True)
+#     # print(len(picker.data.events), "events")
+#     np.save('HMSL_labeled_evnets', picker.data.events)
 
 if __name__ == '__main__':
 
@@ -1383,13 +1479,15 @@ if __name__ == '__main__':
     picker = Picker([], False,
             station_list_path=None,#"./stalist2010.pkl",
             response_list_path=None,#"./resp_catalog/resplist2010_lite.pkl",
-            rawdata_dir="./rawdata_catalog_mass",
+            rawdata_dir="/Volumes/SSD-PGMU3/rawdata_catalog_mass_usta",
             target_year=int(sys.argv[1]),
+            # rawdata_dir="./rawdata_HMSL_labeled",
             stationlist_method="directory"
             )
     print("picker created.")
 
     picker.data.events = list(np.load('./gcmt_mw.npy', allow_pickle=True))
+    # picker.data.events = list(np.load('./HMSL_labeled_evnets.npy', allow_pickle=True))
     print("catalog loaded.")
 
     ################################################################
@@ -1421,25 +1519,62 @@ if __name__ == '__main__':
     # call mass downloader 'waveformget'
 
     # -> preproc the datalist into training_catalog/* and catalog_preproc.hdf5 by data.get_datalist()
+    # datalist = picker.data.get_datalist(
+    #     resample=resample_rate,
+    #     preprocess=True,
+    #     year_option=picker.target_year,
+    #     cutoff_magnitude=5.5,
+    #     obsfile="mass",
+    #     dir_ext='_catalog_mass',
+    #     overwrite_hdf=True,
+    #     output=f'./catalog_{picker.target_year}_preproc.hdf5',
+    #     cpu_number=10
+    # )
+    # df = pd.DataFrame(datalist)
+    # df.to_csv(f'catalog_{picker.target_year}_preproc.csv', index=False)    
+
+    # datalist = picker.data.get_datalist(
+    #     resample=resample_rate,
+    #     preprocess=True,
+    #     # year_option=picker.target_year,
+    #     # cutoff_magnitude=5.5,
+    #     obsfile="mass",
+    #     dir_ext='_HMSL_labeled',
+    #     overwrite_hdf=True,
+    #     overwrite_event=True,
+    #     output=f'./HMSL_labeled_preproc.hdf5',
+    #     respdir='/Volumes/seismic/resp_catalog',
+    #     cpu_number=10
+    # )
+    # df = pd.DataFrame(datalist)
+    # df.to_csv(f'HMSL_labeled_preproc.csv', index=False)    
+
     datalist = picker.data.get_datalist(
         resample=resample_rate,
         preprocess=True,
         year_option=picker.target_year,
         cutoff_magnitude=5.5,
         obsfile="mass",
-        dir_ext='_catalog_mass',
+        dir_ext='_catalog_mass_usta',
         overwrite_hdf=True,
-        output=f'./catalog_{picker.target_year}_preproc.hdf5',
-        cpu_number=10
+        output=f'./catalog_usta_{picker.target_year}_preproc.hdf5',
+        cpu_number=10,
+        batch_size=10
     )
     df = pd.DataFrame(datalist)
-    df.to_csv(f'catalog_{picker.target_year}_preproc.csv', index=False)    
+    df.to_csv(f'catalog_usta_{picker.target_year}_preproc.csv', index=False)   
 
     ################################################################
 
     # -> prepare directory for prediction by picker.prepare_catalog()
+    # preproc_prefix = "catalog_not_usta"
+    preproc_prefix = "catalog_usta"
     # picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
-    picker.prepare_catalog('./training_catalog_mass', f'/Volumes/seismic/catalog_{picker.target_year}_stnflt_preproc', f'/Volumes/seismic/catalog_{picker.target_year}_stnflt_hdfs', 10)
+    # picker.prepare_catalog(f'./training_HMSL_labeled/*', f'/Volumes/seismic/training_HMSL_labeled_preproc', f'/Volumes/seismic/training_HMSL_labeled_hdfs', 10)
+    # picker.prepare_catalog(f'./training_catalog_mass/{picker.target_year}', f'/Volumes/seismic/catalog_{picker.target_year}_stnflt_preproc', f'/Volumes/seismic/catalog_{picker.target_year}_stnflt_hdfs', 10)
+    # picker.prepare_catalog(f'./training_catalog_mass_not_usta/{picker.target_year}', f'/Volumes/seismic/catalog_not_usta_{picker.target_year}_stnflt_preproc', f'/Volumes/seismic/catalog_not_usta_{picker.target_year}_stnflt_hdfs', 10)
+    # picker.prepare_catalog(f'/Volumes/SSD-PGMU3/training_catalog_mass_not_usta/{picker.target_year}', f'/Volumes/SSD-PGMU3/{preproc_prefix}_{picker.target_year}_stnflt_preproc', f'/Volumes/SSD-PGMU3/{preproc_prefix}_{picker.target_year}_stnflt_hdfs', 10)
+    picker.prepare_catalog(f'/Volumes/SSD-PGMU3/training_catalog_mass_usta/{picker.target_year}', f'./{preproc_prefix}_{picker.target_year}_preproc', f'./{preproc_prefix}_{picker.target_year}_hdfs', 10)
     # -> run predition with EQTransfomer in JupyterNotebook
 
     # # create dataset from scretch, fetch seismic data, and dump
