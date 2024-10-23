@@ -1399,8 +1399,12 @@ class Picker():
 #     np.save('HMSL_labeled_evnets', picker.data.events)
 
 if __name__ == '__main__':
-
-    table_dir = "./drive-download-20220512T014633Z-001"
+    data_rootdir = '/Volumes/SSD-PGMU3'
+    datafolder_ext = "_catalog_mass_usta" 
+    preproc_prefix = "catalog_usta"
+    result_rootdir = '.'
+    table_dir = './drive-download-20220512T014633Z-001'
+    gcmt_catalog_dir = '../waveformget/gcmt_mw.npy'
     table_filenames = [f"{table_dir}/Pcomb.4.07.09.table",f"{table_dir}/Scomb.4.07.09.table"]
     resample_rate = 4.0
     
@@ -1480,14 +1484,14 @@ if __name__ == '__main__':
     picker = Picker([], False,
             station_list_path=None,#"./stalist2010.pkl",
             response_list_path=None,#"./resp_catalog/resplist2010_lite.pkl",
-            rawdata_dir="/Volumes/SSD-PGMU3/rawdata_catalog_mass_usta",
+            rawdata_dir=os.path.join(data_rootdir, f"rawdata{datafolder_ext}"),
             target_year=int(sys.argv[1]),
             # rawdata_dir="./rawdata_HMSL_labeled",
             stationlist_method="directory"
             )
     print("picker created.")
 
-    picker.data.events = list(np.load('../waveformget/gcmt_mw.npy', allow_pickle=True))
+    picker.data.events = list(np.load(gcmt_catalog_dir, allow_pickle=True))
     # picker.data.events = list(np.load('./HMSL_labeled_evnets.npy', allow_pickle=True))
     print("catalog loaded.")
 
@@ -1556,26 +1560,25 @@ if __name__ == '__main__':
         year_option=picker.target_year,
         cutoff_magnitude=5.5,
         obsfile="mass",
-        dir_ext='_catalog_mass_usta',
+        dir_ext=datafolder_ext,
         overwrite_hdf=True,
-        output=f'./catalog_usta_{picker.target_year}_preproc.hdf5',
+        output=f'{result_rootdir}/{preproc_prefix}_{picker.target_year}_preproc.hdf5',
         cpu_number=10,
         batch_size=10
     )
     df = pd.DataFrame(datalist)
-    df.to_csv(f'catalog_usta_{picker.target_year}_preproc.csv', index=False)   
+    df.to_csv(f'{result_rootdir}/{preproc_prefix}_{picker.target_year}_preproc.csv', index=False)   
 
     ################################################################
 
     # -> prepare directory for prediction by picker.prepare_catalog()
     # preproc_prefix = "catalog_not_usta"
-    preproc_prefix = "catalog_usta"
-    # picker.load_dataset('./rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
-    # picker.prepare_catalog(f'./training_HMSL_labeled/*', f'/Volumes/seismic/training_HMSL_labeled_preproc', f'/Volumes/seismic/training_HMSL_labeled_hdfs', 10)
-    # picker.prepare_catalog(f'./training_catalog_mass/{picker.target_year}', f'/Volumes/seismic/catalog_{picker.target_year}_stnflt_preproc', f'/Volumes/seismic/catalog_{picker.target_year}_stnflt_hdfs', 10)
-    # picker.prepare_catalog(f'./training_catalog_mass_not_usta/{picker.target_year}', f'/Volumes/seismic/catalog_not_usta_{picker.target_year}_stnflt_preproc', f'/Volumes/seismic/catalog_not_usta_{picker.target_year}_stnflt_hdfs', 10)
+    # picker.load_dataset('{result_rootdir}/rawdata_catalog3/data_fetched_catalog_2010_3.pkl', verbose=True)
+    # picker.prepare_catalog(f'{result_rootdir}/training_HMSL_labeled/*', f'/Volumes/seismic/training_HMSL_labeled_preproc', f'/Volumes/seismic/training_HMSL_labeled_hdfs', 10)
+    # picker.prepare_catalog(f'{result_rootdir}/training_catalog_mass/{picker.target_year}', f'/Volumes/seismic/catalog_{picker.target_year}_stnflt_preproc', f'/Volumes/seismic/catalog_{picker.target_year}_stnflt_hdfs', 10)
+    # picker.prepare_catalog(f'{result_rootdir}/training_catalog_mass_not_usta/{picker.target_year}', f'/Volumes/seismic/catalog_not_usta_{picker.target_year}_stnflt_preproc', f'/Volumes/seismic/catalog_not_usta_{picker.target_year}_stnflt_hdfs', 10)
     # picker.prepare_catalog(f'/Volumes/SSD-PGMU3/training_catalog_mass_not_usta/{picker.target_year}', f'/Volumes/SSD-PGMU3/{preproc_prefix}_{picker.target_year}_stnflt_preproc', f'/Volumes/SSD-PGMU3/{preproc_prefix}_{picker.target_year}_stnflt_hdfs', 10)
-    picker.prepare_catalog(f'/Volumes/SSD-PGMU3/training_catalog_mass_usta/{picker.target_year}', f'./{preproc_prefix}_{picker.target_year}_preproc', f'./{preproc_prefix}_{picker.target_year}_hdfs', 10)
+    picker.prepare_catalog(f'{data_rootdir}/training{datafolder_ext}/{picker.target_year}', f'{result_rootdir}/{preproc_prefix}_{picker.target_year}_preproc', f'{result_rootdir}/{preproc_prefix}_{picker.target_year}_hdfs', 10)
     # -> run predition with EQTransfomer in JupyterNotebook
 
     # # create dataset from scretch, fetch seismic data, and dump
