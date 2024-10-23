@@ -893,6 +893,7 @@ class SeismicData():
             print("reference station response file is read")
 
         # set directory
+#### FIX THIS: DONT DOUBLE DEFINE RAWDATA PATH
         loaddir = f'./rawdata{dir_ext}' if preprocess else f"./training{dir_ext}"
         if preprocess=='bandpass': savedir = f"./training_bandpass{dir_ext}"
         elif preprocess=='onlyrot': savedir = f"./training_onlyrot{dir_ext}"
@@ -1013,8 +1014,8 @@ class SeismicData():
     
 
 class Picker():
-    def __init__(self, dataset_paths, dataset_as_folder=False, default_p_calctime=450, stationlist_method="event_table", target_year=None, **kwargs):
-        self.client = Client('IRIS')
+    def __init__(self, dataset_paths, dataset_as_folder=False, default_p_calctime=450, stationlist_method="event_table", target_year=None, online_mode=False, **kwargs):
+        self.client = Client('IRIS') if online_mode is True else None
         self.model = TauPyModel(model="prem")
         self.station_list = None
         self.station_dict = None
@@ -1486,7 +1487,7 @@ if __name__ == '__main__':
             )
     print("picker created.")
 
-    picker.data.events = list(np.load('./gcmt_mw.npy', allow_pickle=True))
+    picker.data.events = list(np.load('../waveformget/gcmt_mw.npy', allow_pickle=True))
     # picker.data.events = list(np.load('./HMSL_labeled_evnets.npy', allow_pickle=True))
     print("catalog loaded.")
 
