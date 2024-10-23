@@ -454,7 +454,7 @@ class SeismicData():
         for event in self.events:
             srctime = event.srctime
             srctime.precision = 3
-            savedir = f"./rawdata/{srctime}" if israwdata else f"./training/{srctime}" 
+            savedir = f"{data_rootdir}/rawdata/{srctime}" if israwdata else f"{data_rootdir}/training/{srctime}" 
             for station in event.stations:
                 search = glob.glob(f"{savedir}/*.{station.labelsta['name']}.LH.obspy")
                 if len(search) > 0:
@@ -894,10 +894,10 @@ class SeismicData():
 
         # set directory
 #### FIX THIS: DONT DOUBLE DEFINE RAWDATA PATH
-        loaddir = f'./rawdata{dir_ext}' if preprocess else f"./training{dir_ext}"
-        if preprocess=='bandpass': savedir = f"./training_bandpass{dir_ext}"
-        elif preprocess=='onlyrot': savedir = f"./training_onlyrot{dir_ext}"
-        elif preprocess: savedir = f"./training{dir_ext}"
+        loaddir = f'{data_rootdir}/rawdata{dir_ext}' if preprocess else f"{data_rootdir}/training{dir_ext}"
+        if preprocess=='bandpass': savedir = f"{data_rootdir}/training_bandpass{dir_ext}"
+        elif preprocess=='onlyrot': savedir = f"{data_rootdir}/training_onlyrot{dir_ext}"
+        elif preprocess: savedir = f"{data_rootdir}/training{dir_ext}"
 
         # select events
         def event_checked(event) -> bool:
@@ -1170,8 +1170,8 @@ class Picker():
                     p_calctim = self.default_p_calctime
                     
                     if not target_srctime.year in csv_references:
-                        if os.path.exists(f"./{preproc_prefix}_{target_srctime.year}_preproc.csv"):
-                            csv_references[target_srctime.year] = pd.read_csv(f"./{preproc_prefix}_{target_srctime.year}_preproc.csv")
+                        if os.path.exists(f"{result_rootdir}/{preproc_prefix}_{target_srctime.year}_preproc.csv"):
+                            csv_references[target_srctime.year] = pd.read_csv(f"{result_rootdir}/{preproc_prefix}_{target_srctime.year}_preproc.csv")
                         else:
                             csv_references[target_srctime.year] = None
                     ref_csv = csv_references[target_srctime.year]
