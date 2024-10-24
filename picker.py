@@ -1014,7 +1014,7 @@ class SeismicData():
     
 
 class Picker():
-    def __init__(self, dataset_paths, dataset_as_folder=False, default_p_calctime=450, stationlist_method="event_table", target_year=None, online_mode=False, **kwargs):
+    def __init__(self, dataset_paths, dataset_as_folder=False, default_p_calctime=450, stationlist_method="event_table", target_year=None, preproc_csv_filename=None, online_mode=False, **kwargs):
         self.client = Client('IRIS') if online_mode is True else None
         self.model = TauPyModel(model="prem")
         self.station_list = None
@@ -1022,6 +1022,7 @@ class Picker():
         self.stationlist_method = stationlist_method
         self.target_year = target_year
         self.default_p_calctime = default_p_calctime
+        self.preproc_csv_filename = preproc_csv_filename
         self.create_dataset(dataset_paths, dataset_as_folder, **kwargs)
 
     def create_dataset(self, table_filenames, dataset_as_folder, **kwargs):
@@ -1123,7 +1124,10 @@ class Picker():
         if obsfile=='separate':
             filenames = glob.glob(f'{self.waveform_dir}/*/*.{station_code}.*') #[join(station, ev) for ev in listdir(station) if ev.split("/")[-1] != ".DS_Store"];
         elif obsfile=='mass':
-            filenames = glob.glob(f'{self.waveform_dir}/*/*.{station_code}.*')
+            # filenames = glob.glob(f'{self.waveform_dir}/*/*.{station_code}.*')
+            df = pd.read_csv(self.preproc_csv_filename)
+            filtered_df = df[df['receiver_code'] == station_code]
+            filenames = [ f"{self.waveform_dir}/{str(UTCDateTime(row['source_origin_time'], precision=3))}/{row['network_code']}.{station_code}.LH.obspy" for index, row in filtered_df.iterrows() ]
         else:
             filenames = glob.glob(f'{self.waveform_dir}/*.{station_code}.*')
             # filenames = glob.glob(f'{self.waveform_dir}/2010*.{station_code}.*')
@@ -1481,11 +1485,14 @@ if __name__ == '__main__':
 
     # best workflow:
     if not (int(sys.argv[1]) > 1970 and int(sys.argv[1]) < 2100): raise ValueError("invalid args")
+    preproc_csv_filename = f'{result_rootdir}/{preproc_prefix}_{int(sys.argv[1])}_preproc.csv'
+    preproc_hdf_filename = f'{result_rootdir}/{preproc_prefix}_{int(sys.argv[1])}_preproc.hdf5'
     picker = Picker([], False,
             station_list_path=None,#"./stalist2010.pkl",
             response_list_path=None,#"./resp_catalog/resplist2010_lite.pkl",
             rawdata_dir=os.path.join(data_rootdir, f"rawdata{datafolder_ext}"),
             target_year=int(sys.argv[1]),
+            preproc_csv_filename = preproc_csv_filename,
             # rawdata_dir="./rawdata_HMSL_labeled",
             stationlist_method="directory"
             )
@@ -1562,12 +1569,12 @@ if __name__ == '__main__':
         obsfile="mass",
         dir_ext=datafolder_ext,
         overwrite_hdf=True,
-        output=f'{result_rootdir}/{preproc_prefix}_{picker.target_year}_preproc.hdf5',
+        output=preproc_hdf_filename,
         cpu_number=10,
         batch_size=10
     )
     df = pd.DataFrame(datalist)
-    df.to_csv(f'{result_rootdir}/{preproc_prefix}_{picker.target_year}_preproc.csv', index=False)   
+    df.to_csv(preproc_csv_filename, index=False)
 
     ################################################################
 
