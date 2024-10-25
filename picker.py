@@ -1141,7 +1141,11 @@ class Picker():
         count_chuncks=0; c1=0; c2=0; c3=0
         
         for filename in filenames:
-            st = read(filename, debug_headers=True)
+            try:
+                st = read(filename, debug_headers=True)
+            except:
+                print(f"failed to open: {filename}")
+                continue
             component_num = len(st)
 
             if obsfile=='separate' or obsfile=='mass':
