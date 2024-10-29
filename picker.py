@@ -570,7 +570,11 @@ class SeismicData():
         if len(event.stations) == 0:
             print(f"loading station xml files for {event.srctime} at {xml_directory}...")
             for stationxml in glob.glob(f"{xml_directory}/*.xml"):
-                network = read_inventory(stationxml)[0]; station = network[0]
+                try:
+                    network = read_inventory(stationxml)[0]; station = network[0]
+                except:
+                    print(f"failed to read {stationxml}")
+                    continue
                 # build station list
                 location_matched, _ = find_location(station)
                 if location_matched == None: continue
