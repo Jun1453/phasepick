@@ -50,10 +50,11 @@ def flatten_list(l):
         else: yield el
 
 class Event():
-    def __init__(self, time: UTCDateTime, lat, lon, dep, mag=None):
+    def __init__(self, time: UTCDateTime, lat, lon, dep, mag=None, gcmtid=None):
         self.srctime = time
         self.srcloc = (lat, lon, dep)
         self.magnitude = mag
+        self.gcmtid = gcmtid
         self.stations = []
     def __eq__(self, target):
         return (self.srctime == target.srctime) & (self.srcloc == target.srcloc)
@@ -251,6 +252,10 @@ class SeismicData():
     def _findevent(self, target):
         for event in self.events:
             if event == target: return event
+        return None
+    def get_event_by_centroid_time(self, centroid_time: UTCDateTime):
+        for event in self.events:
+            if event.srctime == centroid_time: return event
         return None
     def _table2events(self, filename):
         table = pd.read_csv(filename, delim_whitespace=True)
