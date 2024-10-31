@@ -7,6 +7,7 @@ from obspy import Catalog, UTCDateTime, read_events
 from obspy.core.event import Event as obspyEvent
 from obspy.core.event import Origin, Pick, Magnitude, CreationInfo, QuantityError, ResourceIdentifier
 from obspy.geodetics.base import gps2dist_azimuth
+from IPython.display import display, clear_output
 
 def update_catalog(catalog: Catalog, datalist: SeismicData, result_csv_filenames: list, version: str) -> Catalog:
     count = 0; length = len(result_csv_filenames)
@@ -55,12 +56,15 @@ def update_catalog(catalog: Catalog, datalist: SeismicData, result_csv_filenames
                             ),
                         ))
         count = count + 1
-        print(f"progress: {count}/{length}")
+        display(f"Progress: [{count}/{length}] [{count/length*100:.1f}%] [{'='*int(count/length*20)}>{' '*(20-int(count/length*20))}]", display_id=True)
+        clear_output(wait=True)
 
 if __name__ == "__main__":
-    old_version = "1.0-b.2"
+    old_version = "1.0-rc.1"
     new_version = "1.0-rc.1"
     datalist_dir = "/Users/junsu/Documents/data_gcmt.pkl"
+    event_filter =  ""
+    filename_subfix = ""
     result_csv_filenames = glob.glob("./updeANMO_shift5_pred_catalog_*/*_outputs/X_prediction_results.csv")
 
     if not os.path.exists(f"./globowcat_{old_version}.xml"):
@@ -73,4 +77,4 @@ if __name__ == "__main__":
 
     with open(datalist_dir, 'rb') as f: datalist = pickle.load(f)
     update_catalog(globowcat, datalist, result_csv_filenames, new_version)
-    globowcat.write(f"./globowcat_{new_version}.xml", format='QUAKEML')
+    globowcat.write(f"./globowcat_{new_version}{filename_subfix}.xml", format='QUAKEML')
