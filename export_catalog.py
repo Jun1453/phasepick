@@ -3,61 +3,62 @@ import glob
 import pickle
 import pandas as pd
 from picker import SeismicData
-from obspy import Catalog, UTCDateTime, read_events
+from obspy import Catalog as obspyCatalog
+from obspy import UTCDateTime, read_events
 from obspy.core.event import Event as obspyEvent
 from obspy.core.event import Origin, Pick, Magnitude, CreationInfo, QuantityError, ResourceIdentifier
 from obspy.geodetics.base import gps2dist_azimuth
-from IPython.display import display, clear_output
 
-def update_catalog(catalog: Catalog, datalist: SeismicData, result_csv_filenames: list, version: str) -> Catalog:
-    count = 0; length = len(result_csv_filenames)
-    for result_csv in map(pd.read_csv, result_csv_filenames):
-        for index, row in result_csv.iterrows():
-            event_id = ResourceIdentifier(id=f"evct-{row['file_name'].split('_')[-1]}")
-            event = event_id.get_referred_object()
-            if event is None:
-                table = datalist.get_event_by_centroid_time(UTCDateTime(row['file_name'].split('_')[-1]))
-                gcmt_id = ResourceIdentifier(id=f"gcmt{table.gcmtid}")
-                event = obspyEvent(resource_id=event_id,
-                    origins=[Origin(
-                        resource_id=gcmt_id,
-                        time = table.srctime,
-                        latitude = table.srcloc[0],
-                        longitude = table.srcloc[1],
-                        depth = table.srcloc[2],
-                        )],
-                    preferred_origin_id=f"gcmt{table.gcmtid}",
-                    magnitudes=[Magnitude(mag=table.magnitude, magnitude_type='Mw', resource_id=gcmt_id)],
-                    event_type="earthquake"
+class Catalog(obspyCatalog):
+    def update_catalog(self, datalist: SeismicData, result_csv_filenames: list, version: str) -> None:
+        count = 0; length = len(result_csv_filenames)
+        for result_csv in map(pd.read_csv, result_csv_filenames):
+            for index, row in result_csv.iterrows():
+                event_id = ResourceIdentifier(id=f"evct-{row['file_name'].split('_')[-1]}")
+                event = event_id.get_referred_object()
+                if event is None:
+                    table = datalist.get_event_by_centroid_time(UTCDateTime(row['file_name'].split('_')[-1]))
+                    gcmt_id = ResourceIdentifier(id=f"gcmt{table.gcmtid}")
+                    event = obspyEvent(resource_id=event_id,
+                        origins=[Origin(
+                            resource_id=gcmt_id,
+                            time = table.srctime,
+                            latitude = table.srcloc[0],
+                            longitude = table.srcloc[1],
+                            depth = table.srcloc[2],
+                            )],
+                        preferred_origin_id=f"gcmt{table.gcmtid}",
+                        magnitudes=[Magnitude(mag=table.magnitude, magnitude_type='Mw', resource_id=ResourceIdentifier(id=f"gcmt{table.gcmtid}-Mw"))],
+                        event_type="earthquake"
+                        )
+                    self.append(event)
+
+                azimuths = gps2dist_azimuth(
+                    lat1=row['station_lat'],
+                    lon1=row['station_lon'],
+                    lat2=event.preferred_origin().latitude,
+                    lon2=event.preferred_origin().longitude
                     )
-                catalog.append(event)
-
-            azimuths = gps2dist_azimuth(
-                lat1=row['station_lat'],
-                lon1=row['station_lon'],
-                lat2=event.preferred_origin().latitude,
-                lon2=event.preferred_origin().longitude
-                )
-            
-            for phase in ['P', 'S']:
-                pick_id = ResourceIdentifier(id=f"quakeml:jun.su/globowcat/{event_id}-{row['network']}_{row['station']}_LH-{phase}")
-                if pick_id.get_referred_object() is None:
-                    if pd.isna(row[f'{phase.lower()}_arrival_time']): continue
-                    event.picks.append(Pick(
-                        resource_id=pick_id,
-                        time=row[f'{phase.lower()}_arrival_time'],
-                        time_errors=QuantityError(confidence_level=row[f'{phase.lower()}_probability']),
-                        azimuth=azimuths[1],
-                        backazimuth=azimuths[2],
-                        method=ResourceIdentifier(id="globowcat-eqt-v5"),
-                        phase_hint=phase,
-                        creation_info = CreationInfo(
-                            author="Jun Su", version=version, creation_time=UTCDateTime.now()
-                            ),
-                        ))
-        count = count + 1
-        display(f"Progress: [{count}/{length}] [{count/length*100:.1f}%] [{'='*int(count/length*20)}>{' '*(20-int(count/length*20))}]", display_id=True)
-        clear_output(wait=True)
+                
+                for phase in ['P', 'S']:
+                    pick_id = ResourceIdentifier(id=f"quakeml:jun.su/globowcat/{event_id}-{row['network']}_{row['station']}_LH-{phase}")
+                    if pick_id.get_referred_object() is None:
+                        if pd.isna(row[f'{phase.lower()}_arrival_time']): continue
+                        event.picks.append(Pick(
+                            resource_id=pick_id,
+                            time=row[f'{phase.lower()}_arrival_time'],
+                            time_errors=QuantityError(confidence_level=row[f'{phase.lower()}_probability']),
+                            azimuth=azimuths[1],
+                            backazimuth=azimuths[2],
+                            method=ResourceIdentifier(id="globowcat-eqt-v5"),
+                            phase_hint=phase,
+                            creation_info = CreationInfo(
+                                author="Jun Su", version=version, creation_time=UTCDateTime.now()
+                                ),
+                            ))
+            count = count + 1
+            print(f"Progress: [{count}/{length}] [{count/length*100:.1f}%] [{'='*int(count/length*20)}>{' '*(20-int(count/length*20))}]", end='\r')
+        return None
 
 if __name__ == "__main__":
     old_version = "1.0-rc.1"
@@ -76,5 +77,5 @@ if __name__ == "__main__":
     globowcat.creation_info=CreationInfo(author="Jun Su", version=new_version, creation_time=UTCDateTime.now())
 
     with open(datalist_dir, 'rb') as f: datalist = pickle.load(f)
-    update_catalog(globowcat, datalist, result_csv_filenames, new_version)
+    globowcat.update_catalog(datalist, result_csv_filenames, new_version)
     globowcat.write(f"./globowcat_{new_version}{filename_subfix}.xml", format='QUAKEML')
