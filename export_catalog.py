@@ -1,15 +1,15 @@
 import os
 import glob
+import time
 import pickle
 import pandas as pd
 from picker import SeismicData
-from obspy import Catalog as obspyCatalog
-from obspy import UTCDateTime, read_events
+from obspy import Catalog, UTCDateTime, read_events
 from obspy.core.event import Event as obspyEvent
 from obspy.core.event import Origin, Pick, Magnitude, CreationInfo, QuantityError, ResourceIdentifier
 from obspy.geodetics.base import gps2dist_azimuth
 
-class Catalog(obspyCatalog):
+class GlobowCatalog(Catalog):
     def update_catalog(self, datalist: SeismicData, result_csv_filenames: list, version: str) -> None:
         count = 0; length = len(result_csv_filenames)
         for result_csv in map(pd.read_csv, result_csv_filenames):
@@ -58,24 +58,36 @@ class Catalog(obspyCatalog):
                             ))
             count = count + 1
             print(f"Progress: [{count}/{length}] [{count/length*100:.1f}%] [{'='*int(count/length*20)}>{' '*(20-int(count/length*20))}]", end='\r')
+        print(f"\nCatalog is updated for {length} result files.")
         return None
 
 if __name__ == "__main__":
     old_version = "1.0-rc.1"
     new_version = "1.0-rc.1"
+    old_filename_suffix = ""
+    new_filename_subfix = ""
     datalist_dir = "/Users/junsu/Documents/data_gcmt.pkl"
     event_filter =  ""
-    filename_subfix = ""
     result_csv_filenames = glob.glob("./updeANMO_shift5_pred_catalog_*/*_outputs/X_prediction_results.csv")
 
-    if not os.path.exists(f"./globowcat_{old_version}.xml"):
-        globowcat = Catalog()
+    old_catalog_dir = f"./globowcat_{old_version}{old_filename_suffix}.xml"
+    new_catalog_dir = f"./globowcat_{new_version}{new_filename_subfix}.xml"
+    if not os.path.exists(old_catalog_dir):
+        print("A new catalog will be created:", new_catalog_dir)
+        globowcat = GlobowCatalog()
     else:
-        globowcat = read_events(f"./globowcat_{old_version}.xml")
+        start_time = time.time()
+        print('Loading catalog:', old_catalog_dir, end="\r")
+        globowcat = GlobowCatalog()
+        globowcat.events = read_events(old_catalog_dir).events
+        load_time = time.time() - start_time
+        print(f"\nCatalog is loaded in {load_time:.1f} seconds.")
 
     globowcat.resource_id=str(f"quakeml:jun.su/globowcat_{new_version}")
     globowcat.creation_info=CreationInfo(author="Jun Su", version=new_version, creation_time=UTCDateTime.now())
 
     with open(datalist_dir, 'rb') as f: datalist = pickle.load(f)
     globowcat.update_catalog(datalist, result_csv_filenames, new_version)
-    globowcat.write(f"./globowcat_{new_version}{filename_subfix}.xml", format='QUAKEML')
+    print('Saving file...', end="\r")
+    globowcat.write(new_catalog_dir, format='QUAKEML')
+    print("Catalog is saved:", new_catalog_dir)
