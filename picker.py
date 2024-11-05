@@ -615,20 +615,22 @@ class SeismicData():
                 if obsfile == 'mass':
                     event_time_wild = f"{str(UTCDateTime(event.srctime, precision=3))[:-1]}*Z"
                     if network_code == None:
-                        network_search = glob.glob(f"{loaddir}/{event.srctime.year}/{event_time_wild}/waveforms/*.{station_code}.*.mseed")
-                        if len(network_search) == 0:
-                            print(f"missing event {loaddir}/{event.srctime.year}/{event_time_wild}/waveforms/*.{station_code}.*.mseed"); continue
+                        network_search = f"{loaddir}/{event.srctime.year}/{event_time_wild}/waveforms/*.{station_code}.*.mseed"
+                        if len(glob.glob(network_search)) == 0:
+                            print(f"missing event:", network_search); continue
                         else:
                             network_code = network_search[0].split('/')[-1].split('.')[0]
                             event_name = f"{station_code}.{network_code}_{event.srctime.year:4d}{event.srctime.month:02d}{event.srctime.day:02d}{event.srctime.hour:02d}{event.srctime.minute:02d}{event.srctime.second:02d}_EV"
                             processed_filename = f"{savedir}/{event.srctime.year:4d}/{event.srctime}/{network_code}.{station_code}.LH.obspy"
 
-                    try: stream_org = read(f"{loaddir}/{event.srctime.year}/{event_time_wild}/waveforms/{network_code}.{station_code}.*.mseed")
+                    station_search = f"{loaddir}/{event.srctime.year}/{event_time_wild}/waveforms/{network_code}.{station_code}.*.mseed"
+                    if not glob.glob(station_search):
+                        print(f"missing waveforms:", station_search); continue
+                    try: stream_org = read(station_search)
                     except InternalMSEEDError as e:
                         print(f"Corrputed mseed in {event_name}: {e}, trying to read individually...") 
                         stream_org = Stream()
-                        found_path = glob.glob(f"{loaddir}/{event.srctime.year}/{event_time_wild}/waveforms/{network_code}.{station_code}.*.mseed")
-                        for filename in found_path:
+                        for filename in glob.glob(station_search):
                             try: stream_org.append(read(filename)[0])
                             except: pass
                 # select 3 components
@@ -1416,9 +1418,9 @@ class Picker():
 #     np.save('HMSL_labeled_evnets', picker.data.events)
 
 if __name__ == '__main__':
-    data_rootdir = '/Volumes/SSD-PGMU3'
-    datafolder_ext = "_catalog_mass_usta" 
-    preproc_prefix = "catalog_usta"
+    data_rootdir = '.'
+    datafolder_ext = "_catalog_mass_not_usta" 
+    preproc_prefix = "catalog_not_usta"
     result_rootdir = '.'
     table_dir = './drive-download-20220512T014633Z-001'
     gcmt_catalog_dir = '../waveformget/gcmt_mw.npy'
