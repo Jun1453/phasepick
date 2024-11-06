@@ -78,7 +78,6 @@ class Station():
     def __init__(self, station, lat, lon, dist, azi, loc=''):
         self.labelsta = {'name': station, 'lat': lat, 'lon': lon, 'dist': dist, 'azi': azi, 'loc': loc}
         self.labelnet = {'code': None}
-        ## todo: find real sta
         self.records = []
         self.isdataexist = False
     def __eq__(self, target):
@@ -904,7 +903,6 @@ class SeismicData():
             print("reference station response file is read")
 
         # set directory
-#### FIX THIS: DONT DOUBLE DEFINE RAWDATA PATH
         loaddir = f'{data_rootdir}/rawdata{dir_ext}' if preprocess else f"{data_rootdir}/training{dir_ext}"
         if preprocess=='bandpass': savedir = f"{data_rootdir}/training_bandpass{dir_ext}"
         elif preprocess=='onlyrot': savedir = f"{data_rootdir}/training_onlyrot{dir_ext}"
