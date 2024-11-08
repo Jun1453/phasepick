@@ -101,24 +101,24 @@ if __name__ == "__main__":
     event_filter =  ""
     result_csv_filenames = glob.glob("./updeANMO_shift5_pred_catalog_*/*_outputs/X_prediction_results.csv")
 
-    old_catalog_dir = f"./globowcat_{old_version}{old_filename_suffix}.xml"
-    new_catalog_dir = f"./globowcat_{new_version}{new_filename_subfix}.xml"
+    old_catalog_dir = f"./globocat_{old_version}{old_filename_suffix}.xml"
+    new_catalog_dir = f"./globocat_{new_version}{new_filename_subfix}.xml"
     if not os.path.exists(old_catalog_dir):
         print("A new catalog will be created:", new_catalog_dir)
-        globowcat = GlobalCatalog()
+        globocat = GlobalCatalog()
     else:
         start_time = time.time()
         print('Loading catalog:', old_catalog_dir, end="\r")
-        globowcat = GlobalCatalog()
-        globowcat.events = read_events(old_catalog_dir).events
+        globocat = GlobalCatalog()
+        globocat.events = read_events(old_catalog_dir).events
         load_time = time.time() - start_time
         print(f"\nCatalog is loaded in {load_time:.1f} seconds.")
 
-    globowcat.resource_id=str(f"quakeml:jun.su/globowcat_{new_version}")
-    globowcat.creation_info=CreationInfo(author="Jun Su", version=new_version, creation_time=UTCDateTime.now())
+    globocat.resource_id=str(f"quakeml:jun.su/globocat_{new_version}")
+    globocat.creation_info=CreationInfo(author="Jun Su", version=new_version, creation_time=UTCDateTime.now())
 
     with open(datalist_dir, 'rb') as f: datalist = pickle.load(f)
-    globowcat.update_catalog(datalist, result_csv_filenames, new_version)
+    globocat.update_catalog(datalist, result_csv_filenames, new_version)
     print('Saving file...', end="\r")
-    globowcat.write(new_catalog_dir, format='QUAKEML')
+    globocat.write(new_catalog_dir, format='QUAKEML')
     print("Catalog is saved:", new_catalog_dir)
