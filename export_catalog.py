@@ -57,7 +57,10 @@ class GlobalCatalog(Catalog):
                     )
                 
                 for phase in ['P', 'S']:
-                    pick_id = ResourceIdentifier(id=f"quakeml:jun.su/globocat/{event_id}-{str(row['network']).strip()}_{str(row['station']).strip()}_LH-{phase}")
+                    if (str(row['network']).lower() == 'nan') and (row['file_name'].split('_')[1] == 'NA'):
+                        network = 'NA'
+                    else: network = row['network']
+                    pick_id = ResourceIdentifier(id=f"quakeml:jun.su/globocat/{event_id}-{str(network).strip()}_{str(row['station']).strip()}_LH-{phase}")
                     if pick_id.get_referred_object() is None:
                         if pd.isna(row[f'{phase.lower()}_arrival_time']): continue
                         event.picks.append(Pick(
@@ -102,11 +105,11 @@ if __name__ == "__main__":
     new_catalog_dir = f"./globowcat_{new_version}{new_filename_subfix}.xml"
     if not os.path.exists(old_catalog_dir):
         print("A new catalog will be created:", new_catalog_dir)
-        globowcat = GlobowCatalog()
+        globowcat = GlobalCatalog()
     else:
         start_time = time.time()
         print('Loading catalog:', old_catalog_dir, end="\r")
-        globowcat = GlobowCatalog()
+        globowcat = GlobalCatalog()
         globowcat.events = read_events(old_catalog_dir).events
         load_time = time.time() - start_time
         print(f"\nCatalog is loaded in {load_time:.1f} seconds.")
