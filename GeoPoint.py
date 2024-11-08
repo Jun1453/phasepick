@@ -30,17 +30,17 @@ class GeoPoint():
         elif name[:3] == 'lat': name = 'latitude'
         return round(super().__getattribute__(name) * to_output, self._precision)
 
-    def get_lonlat(self, unit: str = 'deg') -> tuple:
+    def get_lonlat(self, unit: str = 'deg', precision=3) -> tuple:
         if unit == 'deg' or unit == 'degree':
-            return (self.longitude_deg, self.latitude_deg)
+            return (round(self.longitude_deg, precision), round(self.latitude_deg, precision))
         else:
-            return (self.longitude, self.latitude)
+            return (round(self.longitude, precision), round(self.latitude, precision))
 
-    def get_latlon(self, unit: str = 'deg') -> tuple:
+    def get_latlon(self, unit: str = 'deg', precision=3) -> tuple:
         if unit == 'deg' or unit == 'degree':
-            return (self.latitude_deg, self.longitude_deg)
+            return (round(self.latitude_deg, precision), round(self.longitude_deg, precision))
         else:
-            return (self.latitude, self.longitude)
+            return (round(self.latitude, precision), round(self.longitude, precision))
 
 def midpoint(point1, point2):
     # const φ1 = lat1 * Math.PI/180; // φ, λ in radians
