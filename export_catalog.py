@@ -9,6 +9,7 @@ import pandas as pd
 from cmcrameri import cm
 import matplotlib.pyplot as plt
 from mpl_toolkits.basemap import Basemap
+from sklearn.linear_model import TheilSenRegressor
 from tqdm import tqdm
 from GeoPoint import GeoPoint, midpoint
 from picker import SeismicData, flatten_list
@@ -100,6 +101,33 @@ def plot_depthslice(phase: str, value: str, gcarc_range: set, fidelity_func, val
             plt.legend(markers, labels, title="probability", scatterpoints=1, frameon=False, loc='lower left', bbox_to_anchor=(0.97, 0.75), fontsize=12)
 
     return scatter_table
+
+def plot_vpvs_ratio(get_p_table: function, get_s_table: function, gcarc_range: set, plot_xlabel=False, plot_ylabel=False):
+    p_table = get_p_table(gcarc_range).rename(columns={'anomaly': 'p_anomaly', 'probability': 'p_probability'}) 
+    s_table = get_s_table(gcarc_range).rename(columns={'anomaly': 's_anomaly', 'probability': 's_probability'})
+    p_table['trace_id'] = [ "-".join(arrival_id.split("-")[:-2]) for arrival_id in p_table['arrival_id'].values]
+    s_table['trace_id'] = [ "-".join(arrival_id.split("-")[:-2]) for arrival_id in s_table['arrival_id'].values]
+    columns_to_add = s_table.columns.difference(p_table.columns).append(pd.Index(['trace_id']))
+    scatter_table = p_table.merge(s_table[columns_to_add], how='left', on='trace_id')
+
+    x = scatter_table['p_anomaly']
+    y = scatter_table['s_anomaly']
+    # x_prob = scatter_table['p_probability']
+    # y_prob = scatter_table['s_probability']
+
+    theilsen = TheilSenRegressor(random_state=42).fit(y.values.reshape(-1,1), x.values)
+    y_bound = np.array([min(y.values), max(y.values)])
+    # y_bound = np.array([-10,10]).reshape(-1,1)
+    b = round(float(np.diff(y_bound) / np.diff(theilsen.predict(y_bound.reshape(-1,1)))), 4)
+    plt.plot(theilsen.predict(y_bound.reshape(-1,1)), y_bound, color="k", lw=2)
+    
+    plt.xlim([-20,20]); plt.ylim([-20,20])
+    if plot_xlabel: plt.xlabel("$\delta t_P (sec)$")
+    if plot_ylabel: plt.ylabel("$\delta t_S (sec)$")
+    plt.title(f'P and S travel time residuals (sec) in {gcarc_range[0]}~{gcarc_range[1]} deg\n#Point = {len(x.values)}, $\delta T_S/ \delta T_P$ = {"%.4f"%b}')
+
+    return scatter_table
+
 
 class GlobalCatalog(Catalog):
     def update_catalog(self, datalist: SeismicData, result_csv_filenames: list, version: str) -> None:
