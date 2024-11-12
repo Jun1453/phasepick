@@ -102,18 +102,19 @@ def plot_depthslice(phase: str, value: str, gcarc_range: set, fidelity_func, val
 
     return scatter_table
 
-def plot_vpvs_ratio(get_p_table: function, get_s_table: function, gcarc_range: set, plot_xlabel=False, plot_ylabel=False):
+def plot_vpvs_ratio(get_p_table, get_s_table, gcarc_range: set, plot_xlabel=False, plot_ylabel=False):
     p_table = get_p_table(gcarc_range).rename(columns={'anomaly': 'p_anomaly', 'probability': 'p_probability'}) 
     s_table = get_s_table(gcarc_range).rename(columns={'anomaly': 's_anomaly', 'probability': 's_probability'})
     p_table['trace_id'] = [ "-".join(arrival_id.split("-")[:-2]) for arrival_id in p_table['arrival_id'].values]
     s_table['trace_id'] = [ "-".join(arrival_id.split("-")[:-2]) for arrival_id in s_table['arrival_id'].values]
     columns_to_add = s_table.columns.difference(p_table.columns).append(pd.Index(['trace_id']))
-    scatter_table = p_table.merge(s_table[columns_to_add], how='left', on='trace_id')
+    scatter_table = p_table.merge(s_table[columns_to_add], how='inner', on='trace_id')
 
     x = scatter_table['p_anomaly']
     y = scatter_table['s_anomaly']
-    # x_prob = scatter_table['p_probability']
-    # y_prob = scatter_table['s_probability']
+    x_prob = scatter_table['p_probability']
+    y_prob = scatter_table['s_probability']
+    plt.scatter(x.values, y.values, np.minimum(x_prob.values, y_prob.values))
 
     theilsen = TheilSenRegressor(random_state=42).fit(y.values.reshape(-1,1), x.values)
     y_bound = np.array([min(y.values), max(y.values)])
