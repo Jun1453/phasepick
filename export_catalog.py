@@ -34,7 +34,7 @@ def get_station_dict(xml_path=None):
         station_dict[key] = {'latitude': station.latitude, 'longitude': station.longitude, 'elevation':station.elevation}
     return station_dict
 
-def plot_depthslice(phase: str, value: str, gcarc_range: set, fidelity_func, value_constraint=lambda tb: pd.isnull(tb) | pd.notnull(tb), raw_filename = None, mark_size=lambda r: 50*r**2, colorscale=None, demean=False, average_ray=False, plot_legend=False, plot_colorbar=True, plot=True):
+def plot_depthslice(phase: str, value: str, gcarc_range: set, fidelity_func, value_constraint=lambda tb: pd.isnull(tb) | pd.notnull(tb), raw_filename = None, mark_size=lambda r: 50*r**2, colorscale=None, demean=False, summary_ray=False, plot_legend=False, plot_colorbar=True, plot=True):
     table = pd.concat([pd.read_pickle(filename) for filename in glob.glob(raw_filename)], ignore_index=True)
     table = table
     picker_prob = table['probability']
@@ -44,7 +44,7 @@ def plot_depthslice(phase: str, value: str, gcarc_range: set, fidelity_func, val
                           (fidelity > 0) &
                           (table['gcarc'] > gcarc_range[0]) &
                           (table['gcarc'] < gcarc_range[1])]
-    if average_ray:
+    if summary_ray:
         count_org = len(scatter_table)
         std = np.std(scatter_table[value].values[:])
         for idx, rec in tqdm(scatter_table.iterrows(), total=len(scatter_table), desc="Processing rays"):
