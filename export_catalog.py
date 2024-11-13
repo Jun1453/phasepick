@@ -47,13 +47,18 @@ def plot_depthslice(phase: str, value: str, gcarc_range: set, fidelity_func, val
     if summary_ray:
         count_org = len(scatter_table)
         std = np.std(scatter_table[value].values[:])
+        half_length_norm = 2
+        neighbor_table = table[(table['phase'] == phase.upper()) &
+                               (value_constraint(table[value])) &
+                               (fidelity > 0) &
+                               (table['gcarc'] > gcarc_range[0]-half_length_norm) &
+                               (table['gcarc'] < gcarc_range[1]+half_length_norm)]
         for idx, rec in tqdm(scatter_table.iterrows(), total=len(scatter_table), desc="Processing rays"):
             half_length = 2
             while (True):
-                neighbor_value = scatter_table.loc[(scatter_table['turning_lon']<rec['turning_lon']+half_length) & 
-                                                 (scatter_table['turning_lon']>rec['turning_lon']-half_length) & 
-                                                 (scatter_table['turning_lat']<rec['turning_lat']+half_length) & 
-                                                 (scatter_table['turning_lat']>rec['turning_lat']-half_length), value]
+                neighbor_value = neighbor_table.loc[(abs(neighbor_table['turning_lon']-rec['turning_lon'])<half_length) &
+                                                    (abs(neighbor_table['turning_lat']-rec['turning_lat'])<half_length) &
+                                                    (abs(neighbor_table['gcarc']-rec['gcarc'])<half_length), value]
                 if len(neighbor_value) > 200: half_length /= math.sqrt(2)
                 else: break
             if len(neighbor_value) > 3:
