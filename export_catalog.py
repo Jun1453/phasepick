@@ -36,21 +36,20 @@ def get_station_dict(xml_path=None):
 
 def plot_depthslice(phase: str, value: str, gcarc_range: set, fidelity_func, value_constraint=lambda tb: pd.isnull(tb) | pd.notnull(tb), raw_filename = None, mark_size=lambda r: 50*r**2, colorscale=None, demean=False, summary_ray=False, plot_legend=False, plot_colorbar=True, plot=True):
     table = pd.concat([pd.read_pickle(filename) for filename in glob.glob(raw_filename)], ignore_index=True)
-    table = table
     picker_prob = table['probability']
     fidelity = fidelity_func(picker_prob)
     scatter_table = table[(table['phase'] == phase.upper()) &
                           (value_constraint(table[value])) &
-                          (fidelity > 0) &
+                          (fidelity_func(picker_prob) > 0) &
                           (table['gcarc'] > gcarc_range[0]) &
-                          (table['gcarc'] < gcarc_range[1])]
+                          (table['gcarc'] < gcarc_range[1])].copy()
     if summary_ray:
         count_org = len(scatter_table)
         std = np.std(scatter_table[value].values[:])
         half_length_norm = 2
         neighbor_table = table[(table['phase'] == phase.upper()) &
                                (value_constraint(table[value])) &
-                               (fidelity > 0) &
+                               (fidelity_func(picker_prob) > 0) &
                                (table['gcarc'] > gcarc_range[0]-half_length_norm) &
                                (table['gcarc'] < gcarc_range[1]+half_length_norm)]
         for idx, rec in tqdm(scatter_table.iterrows(), total=len(scatter_table), desc="Processing rays"):
@@ -64,14 +63,12 @@ def plot_depthslice(phase: str, value: str, gcarc_range: set, fidelity_func, val
             if len(neighbor_value) > 3:
                 if (rec[value] > np.mean(neighbor_value) + std) or (rec[value] < np.mean(neighbor_value) - std):
                     table.loc[idx, picker_prob.name] = 0
-                # table.loc[idx, picker_prob.name] = 0
 
-        fidelity = fidelity_func(picker_prob)
         scatter_table = table[(table['phase'] == phase.upper()) &
                               (value_constraint(table[value])) &
-                              (fidelity > 0) &
                               (table['gcarc'] > gcarc_range[0]) &
                               (table['gcarc'] < gcarc_range[1])]
+        scatter_table = scatter_table[fidelity_func(scatter_table[picker_prob.name]) > 0]
         print(f"{count_org-len(scatter_table)} outliers are removed")
 
     lons = scatter_table['turning_lon'].values[:]
@@ -107,31 +104,70 @@ def plot_depthslice(phase: str, value: str, gcarc_range: set, fidelity_func, val
 
     return scatter_table
 
-def plot_vpvs_ratio(get_p_table, get_s_table, gcarc_range: set, plot_xlabel=False, plot_ylabel=False):
-    p_table = get_p_table(gcarc_range).rename(columns={'anomaly': 'p_anomaly', 'probability': 'p_probability'}) 
-    s_table = get_s_table(gcarc_range).rename(columns={'anomaly': 's_anomaly', 'probability': 's_probability'})
-    p_table['trace_id'] = [ "-".join(arrival_id.split("-")[:-2]) for arrival_id in p_table['arrival_id'].values]
-    s_table['trace_id'] = [ "-".join(arrival_id.split("-")[:-2]) for arrival_id in s_table['arrival_id'].values]
-    columns_to_add = s_table.columns.difference(p_table.columns).append(pd.Index(['trace_id']))
-    scatter_table = p_table.merge(s_table[columns_to_add], how='inner', on='trace_id')
+def plot_ratio(get_table1, get_table2, gcarc_range: set, xlim=[-20,20], ylim=[-20,20], demean=False, substract_coef=0, x_dep_y=False, slope_two_sections=False, x_label=None, y_label=None, title=None):
+    table1 = get_table1(gcarc_range).rename(columns={'anomaly': 'anomaly1', 'probability': 'probability1'}) 
+    table2 = get_table2(gcarc_range).rename(columns={'anomaly': 'anomaly2', 'probability': 'probability2'})
+    table1['trace_id'] = [ "-".join(arrival_id.split("-")[:-2]) for arrival_id in table1['arrival_id'].values]
+    table2['trace_id'] = [ "-".join(arrival_id.split("-")[:-2]) for arrival_id in table2['arrival_id'].values]
+    columns_to_add = table2.columns.difference(table1.columns).append(pd.Index(['trace_id']))
+    scatter_table = table1.merge(table2[columns_to_add], how='inner', on='trace_id')
 
-    x = scatter_table['p_anomaly']
-    y = scatter_table['s_anomaly']
-    x_prob = scatter_table['p_probability']
-    y_prob = scatter_table['s_probability']
-    plt.scatter(x.values, y.values, np.minimum(x_prob.values, y_prob.values))
+    x = scatter_table[f'anomaly{1 if not x_dep_y else 2}'].values
+    y = scatter_table[f'anomaly{2 if not x_dep_y else 1}'].values
+    x_prob = scatter_table[f'probability{1 if not x_dep_y else 2}'].values
+    y_prob = scatter_table[f'probability{2 if not x_dep_y else 1}'].values
+    y -= substract_coef*x
+    if demean:
+        x -= np.mean(x)
+        y -= np.mean(y)
+        
+    if not x_dep_y:
+        plt.scatter(x, y, np.minimum(x_prob, y_prob))
+    else:
+        plt.scatter(y, x, np.minimum(x_prob, y_prob))
 
-    theilsen = TheilSenRegressor(random_state=42).fit(y.values.reshape(-1,1), x.values)
-    y_bound = np.array([min(y.values), max(y.values)])
-    # y_bound = np.array([-10,10]).reshape(-1,1)
-    b = round(float(np.diff(y_bound) / np.diff(theilsen.predict(y_bound.reshape(-1,1)))), 4)
-    plt.plot(theilsen.predict(y_bound.reshape(-1,1)), y_bound, color="k", lw=2)
+    # theilsen = TheilSenRegressor(random_state=42).fit(y.reshape(-1,1), x)
+    # y_bound = np.array([min(y), max(y)])
+    # # y_bound = np.array([-10,10]).reshape(-1,1)
+    # b = round(float(np.diff(y_bound) / np.diff(theilsen.predict(y_bound.reshape(-1,1)))), 4)
+    # plt.plot(theilsen.predict(y_bound.reshape(-1,1)), y_bound, color="k", lw=2)
+
+    if slope_two_sections:
+        slope = [None, None]
+        x_bound = [x<=0, x>=0]
+    else:
+        slope = [None]
+        x_bound = [x != np.nan]
     
-    plt.xlim([-20,20]); plt.ylim([-20,20])
-    if plot_xlabel: plt.xlabel("$\delta t_P (sec)$")
-    if plot_ylabel: plt.ylabel("$\delta t_S (sec)$")
-    plt.title(f'P and S travel time residuals (sec) in {gcarc_range[0]}~{gcarc_range[1]} deg\n#Point = {len(x.values)}, $\delta T_S/ \delta T_P$ = {"%.4f"%b}')
+    for i in range(len(slope)):
+        fit_range = np.array([min(x[x_bound[i]]), max(x[x_bound[i]])])
+        theilsen = TheilSenRegressor(random_state=42).fit(x[x_bound[i]].reshape(-1,1), y[x_bound[i]])
+        slope[i] = round(float(np.diff(theilsen.predict(fit_range.reshape(-1,1))) / np.diff(fit_range)), 4)
+        if not x_dep_y:
+            if i == 0: plt.plot(np.array([min(x), max(x)]), theilsen.predict(np.array([min(x), max(x)]).reshape(-1,1)), color="darkgray", lw=2)
+            plt.plot(fit_range, theilsen.predict(fit_range.reshape(-1,1)), color="k", lw=3)
+            
+        else:
+            slope[i] = round(1/slope[i], 4)
+            if i == 0: plt.plot(theilsen.predict(np.array([min(x), max(x)]).reshape(-1,1)), np.array([min(x), max(x)]), color="darkgray", lw=2)
+            plt.plot(theilsen.predict(fit_range.reshape(-1,1)), fit_range, color="k", lw=3)
+            
 
+
+    # theilsen = TheilSenRegressor(random_state=42).fit(y[y<=0].reshape(-1,1), x[y<=0])
+    # slope[0] = round(float(np.diff(y_fit_negative) / np.diff(theilsen.predict(y_fit_negative.reshape(-1,1)))), 4)
+    # plt.plot(theilsen.predict(y_fit_negative.reshape(-1,1)), y_fit_negative, color="k", lw=3)
+    # plt.plot(theilsen.predict(y_fit_positive.reshape(-1,1)), y_fit_positive, color="darkgray", lw=2)
+    # theilsen = TheilSenRegressor(random_state=42).fit(y[y>=0].reshape(-1,1), x[y>=0])
+    # slope[1] = round(float(np.diff(y_fit_positive) / np.diff(theilsen.predict(y_fit_positive.reshape(-1,1)))), 4)
+    # plt.plot(theilsen.predict(y_fit_positive.reshape(-1,1)), y_fit_positive, color="k", lw=3)
+    
+    plt.xlim(xlim); plt.ylim(ylim)
+    # print(plt.axes[0][0].get_ylim())
+    if x_label is not False: plt.xlabel("$\delta t_P (sec)$" if x_label is None else x_label)
+    if y_label is not False: plt.ylabel("$\delta t_S (sec)$" if y_label is None else y_label)
+    plt.title((f'P and S travel time residuals in {gcarc_range[0]}~{gcarc_range[1]} deg\n' if title is None else title) + f'{len(x)} pts, ratio = {tuple(slope) if len(slope)>1 else slope[0]}' )
+    
     return scatter_table
 
 
