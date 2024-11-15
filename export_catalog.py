@@ -140,7 +140,7 @@ class GlobalCatalog(Catalog):
         count = 0; length = len(result_csv_filenames)
         for result_csv in map(pd.read_csv, result_csv_filenames):
             for index, row in result_csv.iterrows():
-                event_id = ResourceIdentifier(id=f"evct-{row['file_name'].split('_')[-1]}")
+                event_id = ResourceIdentifier(id=f"quakeml:jun.su/globocat/evct-{row['file_name'].split('_')[-1]}")
                 event = event_id.get_referred_object()
                 if event is None:
                     table = datalist.get_event_by_centroid_time(UTCDateTime(row['file_name'].split('_')[-1]))
@@ -152,6 +152,7 @@ class GlobalCatalog(Catalog):
                             latitude = table.srcloc[0],
                             longitude = table.srcloc[1],
                             depth = table.srcloc[2],
+                            creation_info = CreationInfo(author="Global CMT Project"),
                             )],
                         preferred_origin_id=f"gcmt{table.gcmtid}",
                         magnitudes=[Magnitude(mag=table.magnitude, magnitude_type='Mw', resource_id=ResourceIdentifier(id=f"gcmt{table.gcmtid}-Mw"))],
@@ -170,7 +171,7 @@ class GlobalCatalog(Catalog):
                     if (str(row['network']).lower() == 'nan') and (row['file_name'].split('_')[1] == 'NA'):
                         network = 'NA'
                     else: network = row['network']
-                    pick_id = ResourceIdentifier(id=f"quakeml:jun.su/globocat/{event_id}-{str(network).strip()}_{str(row['station']).strip()}_LH-{phase}")
+                    pick_id = ResourceIdentifier(id=f"{event_id}-{str(network).strip()}_{str(row['station']).strip()}_LH-{phase}")
                     if pick_id.get_referred_object() is None:
                         if pd.isna(row[f'{phase.lower()}_arrival_time']): continue
                         event.picks.append(Pick(
@@ -202,14 +203,14 @@ class GlobalCatalog(Catalog):
         print(f"\nCatalog is updated for {length} result files.")
         return None
         
-    def get_dataframe(self, include_id=False, xml_path=None, load_station_dict=None) -> pd.DataFrame:
+    def get_dataframe(self, include_id=False, xml_path=None, load_station_dict=None, reference_isc=False) -> pd.DataFrame:
         if not hasattr(self, 'station_dict'):
             if load_station_dict and os.path.exists(load_station_dict):
                 with open(load_station_dict, 'r') as f:
                     self.station_dict = json.load(f)
             else:
                 self.station_dict = get_station_dict(xml_path)
-        return pd.DataFrame([flatten_list([
+        df = pd.DataFrame([flatten_list([
                             arrival.resource_id.id.split('-')[-3].split('_')[:2],
                             arrival.phase,
                             round(arrival.time_residual, 2),
@@ -225,20 +226,67 @@ class GlobalCatalog(Catalog):
                                     lon = self.station_dict[f"{'.'.join(arrival.resource_id.id.split('-')[-3].split('_')[:2])}"]['longitude']
                                 )).get_latlon('deg', precision=3)
                             ),
-                            arrival.resource_id.id.split('/')[-1] if include_id else []
+                            arrival.resource_id.id
                         ]) for ev in self for arrival in ev.preferred_origin().arrivals ],
-                    # columns=['network', 'station', 'phase', 'time_residual', 'probability','distance', 'azimuth', 'backazimuth', 'midpoint_lat', 'midpoint_lon', 'arrival_id'],
-                    columns=['network', 'station', 'phase', 'anomaly', 'probability','gcarc', 'azimuth', 'backazimuth', 'turning_lat', 'turning_lon', 'arrival_id'][:(None if include_id else -1)],
+                    columns=['network', 'station', 'phase', 'anomaly', 'probability','gcarc', 'azimuth', 'backazimuth', 'turning_lat', 'turning_lon', 'arrival_id'],
                     )
 
+        if reference_isc:
+            def get_isc_event(isc_event_path):
+                isc_events = read_events(isc_event_path)
+                if len(isc_events) == 0: return None
+                elif len(isc_events) > 1:raise Exception(f"More than one events in ISC catalog:", isc_event_path)
+                else: isc_event = isc_events[0]
+                if len(isc_event.origins) == 0: raise Exception(f"No origin in ISC catalog:", isc_event_path)
+                elif len(isc_event.origins) > 1:raise Exception(f"More than one origins in ISC catalog:", isc_event_path)
+                return isc_event
+            
+            for event in tqdm(globocat, desc="Processing events"):
+                if UTCDateTime('-'.join(event.resource_id.id.split('-')[1:]), precision=6) > UTCDateTime('2022-10-31T23:59:59Z'): continue
+                isc_p_event = get_isc_event(f"quakeml/P/{UTCDateTime('-'.join(event.resource_id.id.split('-')[1:]), precision=6)}.xml")
+                isc_s_event = get_isc_event(f"quakeml/S/{UTCDateTime('-'.join(event.resource_id.id.split('-')[1:]), precision=6)}.xml")
+                if isc_p_event: event.picks += isc_p_event.picks 
+                if isc_s_event: event.picks += isc_s_event.picks 
+                if isc_p_event:
+                    if isc_s_event: isc_p_event.origins[0].arrivals += isc_s_event.origins[0].arrivals
+                    event.origins.append(isc_p_event.origins[0])
+                elif isc_s_event: event.origins.append(isc_s_event.origins[0])
+
+            def find_related_isc_arrival(arrival_id):
+                event_id, station_info, phase = arrival_id.rsplit('-', 3)[:-1]
+                network_code, station_code = station_info.split('_')[:-1]
+                event = ResourceIdentifier(id=event_id).get_referred_object()
+                for origin in event.origins:
+                    if origin.creation_info and origin.creation_info.author == 'ISC':
+                        for isc_arrival in origin.arrivals:
+                            if isc_arrival.phase == phase and isc_arrival.pick_id.get_referred_object().waveform_id.station_code == station_code:
+                                return isc_arrival
+                return None
+
+            anomaly_isc = lambda arrival_id: find_related_isc_arrival(arrival_id).time_residual if find_related_isc_arrival(arrival_id) else np.NaN
+            anomaly_rev = lambda arrival_id: ( anomaly_isc(arrival_id)
+                                             + (ResourceIdentifier(arrival_id).get_referred_object().pick_id.get_referred_object().time
+                                             - find_related_isc_arrival(arrival_id).pick_id.get_referred_object().time) ) if find_related_isc_arrival(arrival_id) else np.NaN
+
+            df = pd.merge(df, pd.DataFrame([[
+                        arrival_id,
+                        round(anomaly_rev(arrival_id), 2),
+                        anomaly_isc(arrival_id)
+                    ] for arrival_id in tqdm(df['arrival_id'].values, desc="Processing arrivals")],
+                columns=['arrival_id', 'anomaly_rev', 'anomaly_isc']
+                ), on='arrival_id', how='inner')
+
+        return df if include_id else df.drop('arrival_id', axis='columns')
+
 if __name__ == "__main__":
-    old_version = ""
-    new_version = "1.1.0"
-    old_filename_suffix = ""
-    new_filename_subfix = "_2020"
+    year = 2020
+    old_version = "1.2.0"
+    new_version = "1.2.0"
+    old_filename_suffix = f"_{year}"
+    new_filename_subfix = f"_{year}"
     datalist_dir = "/Users/junsu/Documents/data_gcmt.pkl"
     event_filter = ""
-    result_csv_filenames = glob.glob("./updeANMO_shift5_pred_catalog_*2020/*_outputs/X_prediction_results.csv")
+    result_csv_filenames = glob.glob(f"./updeANMO_shift5_pred_catalog_*{year}/*_outputs/X_prediction_results.csv")
 
     old_catalog_dir = f"./globocat_{old_version}{old_filename_suffix}.xml"
     new_catalog_dir = f"./globocat_{new_version}{new_filename_subfix}.xml"
@@ -262,5 +310,5 @@ if __name__ == "__main__":
     globocat.write(new_catalog_dir, format='QUAKEML')
     print("Catalog is saved:", new_catalog_dir)
 
-    df = globocat.get_dataframe(load_station_dict="station_dict.json")
-    df.to_pickle(f'updeANMO_shift5_catalog_2020_plot.pkl')
+    df = globocat.get_dataframe(load_station_dict="station_dict.json", reference_isc=True, include_id=True)
+    df.to_pickle(f'updeANMO_shift5_catalog{new_filename_subfix}_plot.pkl')
