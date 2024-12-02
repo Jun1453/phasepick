@@ -126,12 +126,6 @@ def plot_ratio(get_table1, get_table2, gcarc_range: set, xlim=[-20,20], ylim=[-2
     else:
         plt.scatter(y, x, np.minimum(x_prob, y_prob))
 
-    # theilsen = TheilSenRegressor(random_state=42).fit(y.reshape(-1,1), x)
-    # y_bound = np.array([min(y), max(y)])
-    # # y_bound = np.array([-10,10]).reshape(-1,1)
-    # b = round(float(np.diff(y_bound) / np.diff(theilsen.predict(y_bound.reshape(-1,1)))), 4)
-    # plt.plot(theilsen.predict(y_bound.reshape(-1,1)), y_bound, color="k", lw=2)
-
     if slope_two_sections:
         slope = [None, None]
         x_bound = [x<=0, x>=0]
@@ -145,23 +139,13 @@ def plot_ratio(get_table1, get_table2, gcarc_range: set, xlim=[-20,20], ylim=[-2
         slope[i] = round(float(np.diff(theilsen.predict(fit_range.reshape(-1,1))) / np.diff(fit_range)), 4)
         if not x_dep_y:
             if i == 0: plt.plot(np.array([min(x), max(x)]), theilsen.predict(np.array([min(x), max(x)]).reshape(-1,1)), color="darkgray", lw=2)
-            plt.plot(fit_range, theilsen.predict(fit_range.reshape(-1,1)), color="k", lw=3)
+            plt.plot(fit_range, theilsen.predict(fit_range.reshape(-1,1)), color="w" if plt.rcParams["figure.facecolor"] == 'black' else "k", lw=3)
             
         else:
             slope[i] = round(1/slope[i], 4)
             if i == 0: plt.plot(theilsen.predict(np.array([min(x), max(x)]).reshape(-1,1)), np.array([min(x), max(x)]), color="darkgray", lw=2)
-            plt.plot(theilsen.predict(fit_range.reshape(-1,1)), fit_range, color="k", lw=3)
+            plt.plot(theilsen.predict(fit_range.reshape(-1,1)), fit_range, color="w" if plt.rcParams["figure.facecolor"] == 'black' else "k", lw=3)
             
-
-
-    # theilsen = TheilSenRegressor(random_state=42).fit(y[y<=0].reshape(-1,1), x[y<=0])
-    # slope[0] = round(float(np.diff(y_fit_negative) / np.diff(theilsen.predict(y_fit_negative.reshape(-1,1)))), 4)
-    # plt.plot(theilsen.predict(y_fit_negative.reshape(-1,1)), y_fit_negative, color="k", lw=3)
-    # plt.plot(theilsen.predict(y_fit_positive.reshape(-1,1)), y_fit_positive, color="darkgray", lw=2)
-    # theilsen = TheilSenRegressor(random_state=42).fit(y[y>=0].reshape(-1,1), x[y>=0])
-    # slope[1] = round(float(np.diff(y_fit_positive) / np.diff(theilsen.predict(y_fit_positive.reshape(-1,1)))), 4)
-    # plt.plot(theilsen.predict(y_fit_positive.reshape(-1,1)), y_fit_positive, color="k", lw=3)
-    
     plt.xlim(xlim); plt.ylim(ylim)
     # print(plt.axes[0][0].get_ylim())
     if x_label is not False: plt.xlabel("$\delta t_P (sec)$" if x_label is None else x_label)
