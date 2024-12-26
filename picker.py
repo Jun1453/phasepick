@@ -50,12 +50,13 @@ def flatten_list(l):
         else: yield el
 
 class Event():
-    def __init__(self, time: UTCDateTime, lat, lon, dep, mag=None, gcmtid=None):
-        self.srctime = time
+    def __init__(self, srctime: UTCDateTime, lat, lon, dep, mag=None, gcmtid=None, hypotime=None):
+        self.srctime = srctime
         self.srcloc = (lat, lon, dep)
         self.magnitude = mag
         self.gcmtid = gcmtid
         self.stations = []
+        self.hypotime = hypotime if hypotime else srctime
     def __eq__(self, target):
         return (self.srctime == target.srctime) & (self.srcloc == target.srcloc)
     def __ne__(self, target):
