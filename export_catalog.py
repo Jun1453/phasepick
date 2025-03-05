@@ -250,6 +250,8 @@ class GlobalCatalog(Catalog):
                             arrival.resource_id.id.split('/')[-3].split('_')[:2],
                             arrival.phase,
                             arrival.pick_id.get_referred_object().time,
+                            ev.resource_id.id.rsplit('/',1)[1][5:],
+                            round(UTCDateTime(arrival.pick_id.get_referred_object().time)-UTCDateTime(ev.resource_id.id.rsplit('/',1)[1][5:]),2),
                             round(arrival.time_residual, 2),
                             arrival.pick_id.get_referred_object().time_errors.confidence_level,
                             round(arrival.distance, 4),
@@ -257,6 +259,7 @@ class GlobalCatalog(Catalog):
                             round(arrival.pick_id.get_referred_object().backazimuth, 2) if arrival.pick_id.get_referred_object().backazimuth else None,
                             round(origin(ev).latitude, 3),
                             round(origin(ev).longitude, 3),
+                            round(origin(ev).depth/1000, 3),
                             list(midpoint(GeoPoint(
                                     lat = origin(ev).latitude,
                                     lon = origin(ev).longitude
@@ -270,7 +273,7 @@ class GlobalCatalog(Catalog):
                             arrival.resource_id.id,
                             ev.resource_id.id
                         ]) for ev in self for arrival in origin(ev).arrivals ],
-                    columns=['network', 'station', 'phase', 'arrival_time', 'anomaly', 'probability','gcarc', 'azimuth', 'backazimuth', 'origin_lat', 'origin_lon', 'turning_lat', 'turning_lon', 'station_lat', 'station_lon', 'arrival_id', 'event_id'],
+                    columns=['network', 'station', 'phase', 'arrival_time', 'origin_time', 'travel_time', 'anomaly', 'probability','gcarc', 'azimuth', 'backazimuth', 'origin_lat', 'origin_lon', 'origin_dep', 'turning_lat', 'turning_lon', 'station_lat', 'station_lon', 'arrival_id', 'event_id'],
                     )
 
         if reference_isc:

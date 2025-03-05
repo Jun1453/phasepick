@@ -33,6 +33,7 @@ training_catalog*
 2010-07-26T23:31:07.200Z/
 2010-01-01T02:22:27.100Z.LH.obspy
 globo*.xml
+gcmt_data
 
 # table
 training*.csv
