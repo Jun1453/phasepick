@@ -250,6 +250,7 @@ class GlobalCatalog(Catalog):
                             arrival.resource_id.id.split('/')[-3].split('_')[:2],
                             arrival.phase,
                             arrival.pick_id.get_referred_object().time,
+                            arrival.pick_id.get_referred_object().time - origin(ev).time,
                             round(arrival.time_residual, 2),
                             arrival.pick_id.get_referred_object().time_errors.confidence_level,
                             round(arrival.distance, 4),
@@ -270,7 +271,7 @@ class GlobalCatalog(Catalog):
                             arrival.resource_id.id,
                             ev.resource_id.id
                         ]) for ev in self for arrival in origin(ev).arrivals ],
-                    columns=['network', 'station', 'phase', 'arrival_time', 'anomaly', 'probability','gcarc', 'azimuth', 'backazimuth', 'origin_lat', 'origin_lon', 'turning_lat', 'turning_lon', 'station_lat', 'station_lon', 'arrival_id', 'event_id'],
+                    columns=['network', 'station', 'phase', 'arrival_time', 'travel_time', 'anomaly', 'probability','gcarc', 'azimuth', 'backazimuth', 'origin_lat', 'origin_lon', 'turning_lat', 'turning_lon', 'station_lat', 'station_lon', 'arrival_id', 'event_id'],
                     )
 
         if reference_isc:
