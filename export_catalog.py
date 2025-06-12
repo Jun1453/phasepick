@@ -35,6 +35,12 @@ def get_station_dict(xml_path=None):
     return station_dict
 
 def plot_depthslice(phase: str, value: str, gcarc_range: set, fidelity_func, value_constraint=lambda tb: pd.isnull(tb) | pd.notnull(tb), raw_filename = None, mark_size=lambda r: 50*r**2, colorscale=None, demean=False, summary_ray=False, plot_legend=False, plot_colorbar=True, plot=True, include_id=False):
+    """ Read picking result Pandas table(s) with QC,
+    optionally plotting geographical distribution with a map.
+    
+    Arguments: contraints, filenames, plot settings.
+    Return: a Pandas Dataframe from which the plot is created.
+    """
     table = pd.concat([pd.read_pickle(filename) for filename in glob.glob(raw_filename)], ignore_index=True)
     picker_prob = table['probability']
     fidelity = fidelity_func(picker_prob)
