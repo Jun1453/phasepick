@@ -157,85 +157,97 @@ def plot_ratio(table1, table2, gcarc_range: set, xlim=[-20,20], ylim=[-20,20], d
 
 class GlobalCatalog(Catalog):
     def update_catalog(self, datalist: SeismicData, result_csv_filenames: list, version: str, month=None) -> None:
-        # count = 0; length = len(result_csv_filenames)
-        gcmt_cats = None
-        for result_csv in tqdm(map(pd.read_csv, result_csv_filenames), total=len(result_csv_filenames), desc="Processing result files"):
-            for index, row in result_csv.iterrows():
-                table_srctime = UTCDateTime(row['file_name'].split('_')[-1])
-                if month and (table_srctime.month != month): continue
-                event_id = ResourceIdentifier(id=f"quakeml:jun.su/globocat/evct-{table_srctime}")
-                event = event_id.get_referred_object()
-                table = datalist.get_event_by_centroid_time(table_srctime)
-                if not gcmt_cats: gcmt_cats = [read_events(f'gcmt_data/{table_srctime.year}/{UTCDateTime(table_srctime.year, mon, 1).strftime("%b%y").lower()}.ndk') for mon in (range(1,13) if not month else [month])]
-                # if event: print(f"{event_id.id} found")
-                # else: print(f"{event_id.id} not found")
-                if event is None:
-                    id_candidates = [f"smi:local/ndk/{letter}{table.gcmtid}/event" for letter in ["C", "S", "M", "B"]]
-                    while (event is None):
-                        # gcmt_cat = read_events(f'https://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/NEW_MONTHLY/{table_srctime.year}/{table_srctime.strftime("%b%y").lower()}.ndk')
-                        gcmtev_id = ResourceIdentifier(id=id_candidates.pop(0))
-                        event = gcmtev_id.get_referred_object()
+        # get the whole table
+        source_receiver = pd.concat([pd.read_csv(filename, keep_default_na=False) for filename in result_csv_filenames], ignore_index=True)
+        source_receiver['network'] = source_receiver['network'].str.strip()
+        source_receiver['station'] = source_receiver['station'].str.strip()
+        srctimes = source_receiver['file_name'].str.split('_',n=-1).str[-1]
+        if month:
+            source_receiver = source_receiver[pd.to_datetime(srctimes).dt.month == month]
+            srctimes = source_receiver['file_name'].str.split('_',n=-1).str[-1]
+        gcmt_cats = [read_events(f'gcmt_data/{yr}/{UTCDateTime(yr, mon+1, 1).strftime("%b%y").lower()}.ndk') for yr in pd.to_datetime(srctimes).dt.year.unique() for mon in (range(12) if not month else [month])]
+        
+        # get unique events
+        def find_event(gcmtid):
+            event = None
+            id_candidates = [f"smi:local/ndk/{letter}{gcmtid[1]}/event" for letter in ["C", "S", "M", "B"]]
+            while (event is None):
+                gcmtev_id = ResourceIdentifier(id=id_candidates.pop(0))
+                event = gcmtev_id.get_referred_object()
+            event.resource_id = ResourceIdentifier(id=f"quakeml:jun.su/globocat/evct-{gcmtid[0]}")
+            return event
+        
+        get_gcmtid = lambda t: (t, datalist.get_event_by_centroid_time(UTCDateTime(t)).gcmtid)
+        events = [find_event(get_gcmtid(srctime)) for srctime in srctimes.unique()]
 
-                        # event = obspyEvent(resource_id=event_id,
-                        #     origins=[Origin(
-                        #         resource_id=gcmt_id,
-                        #         time = table.srctime,
-                        #         latitude = table.srcloc[0],
-                        #         longitude = table.srcloc[1],
-                        #         depth = table.srcloc[2],
-                        #         creation_info = CreationInfo(author="Global CMT Project"),
-                        #         )],
-                        #     preferred_origin_id=f"gcmt{table.gcmtid}",
-                        #     magnitudes=[Magnitude(mag=table.magnitude, magnitude_type='Mw', resource_id=ResourceIdentifier(id=f"gcmt{table.gcmtid}-Mw"))],
-                        #     event_type="earthquake"
-                        #     )
-                        # print(gcmtev_id)
-                    event.resource_id = event_id
-                    self.append(event)
-                
-                for origin in event.origins:
+        # get azimuth and distance using preferred origin
+        srctime_to_refrrred_object = lambda t: ResourceIdentifier(id=f"quakeml:jun.su/globocat/evct-{t}").get_referred_object()
+        source_receiver['event_ref'] = srctimes.apply(srctime_to_refrrred_object)
+        source_receiver['azimuths'] = source_receiver.apply(lambda row: gps2dist_azimuth(
+                                        lat1=row['event_ref'].preferred_origin().latitude,
+                                        lon1=row['event_ref'].preferred_origin().longitude,
+                                        lat2=row['station_lat'],
+                                        lon2=row['station_lon'],
+                                        ), axis=1)
+        source_receiver['distance'] = source_receiver['azimuths'].apply(lambda x: kilometers2degrees(x[0]/1000))
+
+        # get picks and arrivals
+        def get_picks(phase, row):
+            # print(row.name, row[f'file_name'])
+            row['event_ref'].picks.append(Pick(
+                resource_id=row['pickid'],
+                time=row[f'{phase.lower()}_arrival_time'],
+                time_errors=QuantityError(confidence_level=row[f'{phase.lower()}_probability']),
+                backazimuth=row['azimuths'][2],
+                method=ResourceIdentifier(id="globocat-eqt-v5"),
+                phase_hint=phase,
+                creation_info = CreationInfo(
+                    author="Jun Su", version=version, creation_time=UTCDateTime.now()
+                    ),
+                ))
+
+            for origin in row['event_ref'].origins:
+                if origin == row['event_ref'].preferred_origin():
+                    azimuths = row['azimuths']
+                    distance = row['distance']
+                else:
                     azimuths = gps2dist_azimuth(
-                        lat1=origin.latitude,
-                        lon1=origin.longitude,
-                        lat2=row['station_lat'],
-                        lon2=row['station_lon'],
-                        )
+                                lat1=origin.latitude,
+                                lon1=origin.longitude,
+                                lat2=row['station_lat'],
+                                lon2=row['station_lon'],
+                                )
                     distance = kilometers2degrees(azimuths[0]/1000)
+                prem_arrival_time = model.get_travel_times(origin.depth/1000, distance, [phase])
+                
+                if len(prem_arrival_time)>0:
+                    origin.arrivals.append(Arrival(
+                        resource_id=ResourceIdentifier(id=f"{origin.resource_id.id}/{row['network']}_{row['station']}_LH/{phase}/PREM"),
+                        earth_model_id=prem_id,
+                        pick_id=row['pickid'],
+                        phase=phase,
+                        azimuth=azimuths[1],
+                        distance=distance,
+                        time_residual=(UTCDateTime(row[f'{phase.lower()}_arrival_time'])-origin.time)-prem_arrival_time[0].time,
+                    ))
+                    
+        for phase in ['P', 'S']:
+            arrival = source_receiver[source_receiver[f'{phase.lower()}_arrival_time']!='']
+            #{row['event_id']}/{str().strip()}_{str(row['station']).strip()}_LH/{phase}"
+            arrival['pickid'] = (arrival['event_ref'].apply(lambda x: x.resource_id.id)\
+                                +'/'+arrival['network']+'_'+arrival['station']\
+                                +f'_LH/{phase}').apply(ResourceIdentifier)
+            # .apply(ResourceIdentifier(id=f"))                    
+            
+            tqdm.pandas(desc=phase)
+            arrival.progress_apply(lambda row: get_picks(phase, row), axis=1)
 
-                    for phase in ['P', 'S']:
-                        if pd.isna(row[f'{phase.lower()}_arrival_time']): continue
-                        if (str(row['network']).lower() == 'nan') and (row['file_name'].split('_')[1] == 'NA'):
-                            network = 'NA'
-                        else: network = row['network']
-                        pick_id = ResourceIdentifier(id=f"{event_id}/{str(network).strip()}_{str(row['station']).strip()}_LH/{phase}")
-                        if pick_id.get_referred_object() is None:
-                            event.picks.append(Pick(
-                                resource_id=pick_id,
-                                time=row[f'{phase.lower()}_arrival_time'],
-                                time_errors=QuantityError(confidence_level=row[f'{phase.lower()}_probability']),
-                                backazimuth=azimuths[2],
-                                method=ResourceIdentifier(id="globocat-eqt-v5"),
-                                phase_hint=phase,
-                                creation_info = CreationInfo(
-                                    author="Jun Su", version=version, creation_time=UTCDateTime.now()
-                                    ),
-                                ))
-                            # print('distance:', distance)
 
-                        prem_arrival_time = model.get_travel_times(origin.depth/1000, distance, [phase])
-                        if len(prem_arrival_time)>0:
-                            origin.arrivals.append(Arrival(
-                                resource_id=ResourceIdentifier(id=f"{origin.resource_id.id}/{str(network).strip()}_{str(row['station']).strip()}_LH/{phase}/PREM"),
-                                earth_model_id=prem_id,
-                                pick_id=pick_id,
-                                phase=phase,
-                                azimuth=azimuths[1],
-                                distance=distance,
-                                time_residual=(UTCDateTime(row[f'{phase.lower()}_arrival_time'])-origin.time)-prem_arrival_time[0].time,
-                            ))
-        #     count = count + 1
-        #     print(f"Progress: [{count}/{length}] [{count/length*100:.1f}%] [{'='*int(count/length*20)}>{' '*(20-int(count/length*20))}]", end='\r')
-        # print(f"\nCatalog is updated for {length} result files.")
+        # update catalog
+        for event in events:
+            self.append(event)
+
+        del events, gcmt_cats, source_receiver, arrival
         return None
         
     def get_dataframe(self, include_id=False, xml_path=None, load_station_dict=None, reference_isc=False, alt_origin=None) -> pd.DataFrame:
@@ -330,16 +342,16 @@ if __name__ == "__main__":
 
     ### the whole loop may take a couple of hours, can be broken down parallel
     # for year in range(2010,2024):
-    for year in range(2012,2013):
-        for month in range(1,13):
+    for year in range(2023,2024):
+        for month in range(1):
         ### i/o configuration
-            old_version = "1.2.1"
-            new_version = "1.2.1"
-            old_filename_suffix = f"_{UTCDateTime(year,month,1).strftime('%b%y').lower()}"
-            new_filename_subfix = f"_{UTCDateTime(year,month,1).strftime('%b%y').lower()}"
+            old_version = "1.2.2"
+            new_version = "1.2.2"
+            old_filename_suffix = f"_{year}"
+            new_filename_subfix = f"_{year}"
             datalist_dir = "/Users/junsu/Documents/data_gcmt.pkl"
             event_filter = ""
-            result_csv_filenames = glob.glob(f"./updeANMO_shift5_pred_catalog_*{year}/*_outputs/X_prediction_results.csv")
+            result_csv_filenames = glob.glob(f"result_stn_csv/updeANMO_shift5_pred_catalog_*{year}/*_outputs/X_prediction_results.csv")
 
             old_catalog_dir = f"result_cat/globocat_{old_version}{old_filename_suffix}.xml"
             new_catalog_dir = f"result_cat/globocat_{new_version}{new_filename_subfix}.xml"
@@ -360,11 +372,11 @@ if __name__ == "__main__":
             globocat.creation_info=CreationInfo(author="Jun Su", version=new_version, creation_time=UTCDateTime.now())
 
             with open(datalist_dir, 'rb') as f: datalist = pickle.load(f)
-            globocat.update_catalog(datalist, result_csv_filenames, new_version, month=month)
+            globocat.update_catalog(datalist, result_csv_filenames, new_version, month=None)
             print('Saving file...', end="\r")
             globocat.write(new_catalog_dir, format='QUAKEML')
             print("Catalog is saved:", new_catalog_dir)
             
-        # ### export pandas dataframe
-        #     df = globocat.get_dataframe(load_station_dict="station_dict.json", include_id=True)
-        #     df.to_pickle(f'updeANMO_shift5_catalog{new_filename_subfix}_plot.pkl')
+        ### export pandas dataframe
+            df = globocat.get_dataframe(load_station_dict="station_dict.json", include_id=False, reference_isc=True)
+            df.to_pickle(f'result_table_centroid/globocat_{new_version}{new_filename_subfix}_vs_isc.pkl')
