@@ -161,4 +161,4 @@ This repository is shared under the [Creative Commons Attribution-NonCommercial-
 
 ## Contact
 
-For questions about this dataset, please contact the corresponding author of Su+2025.
+For questions about the scripts or the dataset, please contact the corresponding author of Su+2025.
