@@ -157,7 +157,7 @@ J. Su, C. Houser, & J. W. Hernlund (2025). Global Long-wavelength Body-wave Cata
 
 ## License
 
-[License information to be added]
+This repository is shared under the [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License](LICENSE.md).
 
 ## Contact
 
